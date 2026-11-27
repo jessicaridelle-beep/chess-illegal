@@ -411,3 +411,60 @@ export function sandboxReply(s,catalog,level,profile='adaptive',options={}){
   return best.a
 }
 export const clone = copy
+
+// AI GOD is the sole opponent allowed these bounded sandbox actions.
+export function godTrial(s,a,c=other(s.side),catalog=[]){
+  if(!a?.power)return legalBotTrial(s,a,c,catalog)
+  if(s.realityLock||s.godCooldown>0||a.double)return null
+  const t={...s,b:{...s.b},last:[]}, size=boardSize(s)
+  if(a.power==='spawn'){
+    if((s.godSpawns||0)>=2||a.type!=='p'||!allSquares(s).includes(a.to)||s.b[a.to])return null
+    const rank=Number(a.to.slice(1))
+    if(rank!==(c==='w'?2:size-1))return null
+    edit(t,a.to,{c,t:'p'});t.godSpawns=(s.godSpawns||0)+1
+  }else if(a.power==='sidestep'){
+    const p=s.b[a.from]
+    if(!p||p.c!==c||p.t==='k'||s.b[a.to]||!allSquares(s).includes(a.to)||!neighbors(a.from,size).includes(a.to)||movement(s.b,a.from,a.to,size))return null
+    if(p.t==='p'&&[1,size].includes(Number(a.to.slice(1))))return null
+    move(t,a.from,a.to)
+  }else if(a.power==='flip'){
+    if(s.godFlipped||threatenedKings(s,catalog).length)return null
+    const kings=['w','b'].every(k=>Object.values(s.b).some(p=>p.c===k&&p.t==='k'))
+    if(!kings)return null
+    const diff=Object.values(s.b).reduce((n,p)=>n+(p.c===c?1:-1)*(p.t==='k'?0:strategicValue(p,catalog)),0)
+    if(diff> -4)return null
+    t.side=c;t.view=c;t.ep='-';t.godFlipped=true;t.last=Object.keys(t.b)
+    if(threatenedKings(t,catalog).length)return null
+    t.godCooldown=4;return t
+  }else return null
+  if(!botKingSafe(s,t,c,catalog))return null
+  // No power can directly check the opponent or remove any piece.
+  if(threatenedKings(t,catalog).some(sq=>t.b[sq].c!==c))return null
+  t.godCooldown=4
+  return t
+}
+export function godPower(s,catalog=[]){
+  if(s.realityLock||s.godCooldown>0)return null
+  const c=other(s.side),size=boardSize(s),base=botPosition(s,c,catalog,'guardian')
+  const flip={power:'flip'}
+  if(godTrial(s,flip,c,catalog))return flip
+  const options=[]
+  if((s.godSpawns||0)<2&&base< -1.5){
+    for(const f of boardFiles(s))options.push({power:'spawn',type:'p',to:f+(c==='w'?2:size-1)})
+  }
+  for(const [from,p] of Object.entries(s.b)){
+    if(p.c!==c||p.t==='k')continue
+    for(const to of neighbors(from,size))if(!s.b[to])options.push({power:'sidestep',from,to})
+  }
+  let best=null,score=0
+  for(const a of options){
+    const t=godTrial(s,a,c,catalog)
+    if(!t)continue
+    const next=botPosition(t,c,catalog,'guardian')-base
+    const exposed=Object.entries(t.b).some(([sq,p])=>p.c!==c&&movement(t.b,sq,a.to,size))
+    const v=next-(exposed?strategicValue(t.b[a.to],catalog):0)
+    const threshold=a.power==='spawn'?.5:4
+    if(v>threshold&&v>score){best=a;score=v}
+  }
+  return best
+}
