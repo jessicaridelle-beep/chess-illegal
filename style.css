@@ -1437,3 +1437,22 @@ input[type='checkbox'] {
 .quick-convert{color:#b0ffdf;border-color:#479c80;background:#25463a}
 #power-area .form-row{flex-wrap:wrap}
 @media(max-width:700px){.tool-grid{grid-template-columns:repeat(3,minmax(0,1fr))}}
+
+/* Expanded arena and sandbox reality powers */
+.board{grid-template-columns:repeat(var(--board-size,8),minmax(0,1fr));grid-template-rows:repeat(var(--board-size,8),minmax(0,1fr))}
+.board[data-size="12"] .coord{font-size:clamp(7px,.7vw,10px)}
+.board[data-size="16"] .coord{font-size:clamp(6px,.55vw,8px);left:1px;top:auto}
+.board[data-size="16"] .coord.rank{top:1px;bottom:auto}
+.board[data-size="16"] .coord.file{left:auto;right:1px;bottom:1px}
+.board[data-size="12"] .capture-ring::before,.board[data-size="16"] .capture-ring::before{border-width:3px}
+.board[data-mode="hole"] .square{cursor:crosshair}
+.board[data-mode="hole"] .square:hover::after,.board[data-mode="hole"] .square:focus-visible::after{border:3px solid #b68bff;background:radial-gradient(circle,#120d24aa,transparent);border-radius:50%;box-shadow:0 0 8px #8e58e7}
+.tool[data-tool="double"]>svg,.tool[data-tool="double"].active strong{color:#ffd27c}
+.tool[data-tool="rewind"]>svg{color:#8edbff}
+.tool[data-tool="hole"]>svg,.tool[data-tool="hole"].active strong{color:#bc9aff}
+.tool[data-tool="expand"]>svg{color:#a7e7b5}
+.tool[data-tool="double"].active{background:#463c28;border-color:#c49e55}
+.tool[data-tool="hole"].active{background:#362c4c;border-color:#9873d9}
+.square.fx-hole::after{background:radial-gradient(circle,#080510 15%,#1d103c 28%,#a56aff 36%,#2c124f 48%,transparent 69%);animation:gravity-well 850ms ease-out both}
+@keyframes gravity-well{0%{opacity:0;transform:scale(.3) rotate(0)}30%{opacity:1;transform:scale(1.15) rotate(80deg)}80%{opacity:.9;transform:scale(.6) rotate(220deg)}100%{opacity:0;transform:scale(0) rotate(320deg)}}
+@media(max-width:700px){.tool-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.tool{display:flex;text-align:left;padding:8px}.tool small{display:block;font-size:10px}.board[data-size="16"] .piece{width:90%;height:90%}}
