@@ -15,7 +15,7 @@ import {
   destinations,
   threatenedKings,
   convertPiece,
-  boardSize, boardFiles, boardRanks, allSquares, expandBoard, blackHole, xy,
+  boardSize, boardFiles, boardRanks, allSquares, expandBoard, blackHole, xy, applyBotAction,
 } from './game.mjs'
 import { stockfishMove, compareMove } from './engine.mjs'
 import { grades, reviewMove, engineGrade } from './review.mjs'
@@ -33,6 +33,7 @@ let game = saved.game?.b ? saved.game : fresh(),
   redoStack = saved.redo || []
 let prefs = {
   bot: 'fish',
+  botPowers: true,
   level: 'balanced',
   auto: true,
   coords: true,
@@ -56,7 +57,11 @@ let mode = 'move',
 let lastAnimated = game.logs.at(-1)?.id, annotations = [], arrowStart = null, revealed = new Set(game.logs.filter(x=>!x.search).map(x=>x.id))
 const catalog = () => [...originals, ...custom]
 const label = (t) => names[t] || catalog().find((x) => x.id === t)?.name || 'Custom piece'
-const botTitle = () => (prefs.bot === 'cat' ? 'Bytecat' : 'Stockfish')
+const botProfiles = {fish:['Stockfish','adaptive','Adaptive fallback'],adaptive:['Nexus','adaptive','Adaptive strategist'],guardian:['Aegis','guardian','King safety specialist'],cat:['Bytecat','chaos','Chaos and tricks'],architect:['Architect','architect','Board expansion specialist']}
+const profile = () => botProfiles[prefs.bot] || botProfiles.fish
+const botTitle = () => profile()[0]
+const globalPowers = new Set(['hole','convert','delete','control','spawn','expand','rewind'])
+const actionNames = {hole:'Black hole',convert:'Conversion',delete:'Delete',control:'Control',spawn:'Spawn',expand:'Board expansion',rewind:'Time reversal'}
 const toolInfo = [
   ['move', 'Move', 'Any square'],
   ['spawn', 'Spawn', 'Add a piece'],
@@ -102,6 +107,7 @@ function checkpoint() {
   if (undoStack.length > 60) undoStack.shift()
   redoStack = []
   game.pending = false
+  game.botFollowup = false
 }
 function log(text, by = 'You') {
   const entry = { text, by }
@@ -592,17 +598,10 @@ function renderStatus() {
   $('turn').parentElement.classList.toggle('check-turn', !!checked.length && !game.result)
   $('match-result').hidden = !game.result
   if (game.result) $('result-summary').textContent = resultTitle() + ' · ' + game.result.reason
-  $('bot-name').textContent = botTitle()
+  $('bot-name').textContent = prefs.bot==='fish' && !orthodox(game,other(game.side)) ? 'Nexus · fallback' : botTitle()
   $('bot-avatar').src = prefs.bot === 'cat' ? 'art/cat.svg' : 'art/bot.svg'
   const compatible = prefs.bot === 'fish' && orthodox(game, other(game.side))
-  $('bot-detail').textContent =
-    (prefs.bot === 'fish' && !compatible
-      ? 'Sandbox engine'
-      : prefs.bot === 'cat'
-        ? 'Trickster bot'
-        : { relaxed: 'Relaxed', balanced: 'Balanced', sharp: 'Sharp' }[prefs.level] + ' engine') +
-    ' · ' +
-    colorName(other(game.side))
+  $('bot-detail').textContent = (compatible ? 'Stockfish · '+prefs.level : profile()[2]+' · '+prefs.level+(prefs.botPowers?' · Powers '+(game.botCooldown>0?'cooldown '+game.botCooldown:'ready'):' · Powers off'))+' · '+colorName(other(game.side))
   $('player-side').textContent = colorName(game.side) + ' pieces'
   $('side-dot').classList.toggle('black', game.side === 'b')
   $('undo').disabled = !undoStack.length
@@ -673,8 +672,8 @@ function render() {
 }
 async function botMove(token) {
   if (epoch !== token || !game.pending || game.result) return
-  const c = other(game.side),
-    ch = prefs.bot === 'fish' ? orthodox(game, c) : null
+  const c = other(game.side), followup=!!game.botFollowup,
+    ch = prefs.bot === 'fish' && !followup ? orthodox(game, c) : null
   let action = null,
     by = botTitle(),
     pass = ''
@@ -694,50 +693,34 @@ async function botMove(token) {
       }
     }
   } else {
-    action = sandboxReply(game, catalog(), prefs.level, prefs.bot === 'cat')
-    if (prefs.bot === 'fish') by = 'Sandbox bot'
+    action = sandboxReply(game,catalog(),prefs.level,profile()[1],{powers:prefs.botPowers,followup,allowDouble:true,history:undoStack})
+    if (prefs.bot === 'fish') by = 'Nexus · fallback'
     if (!action) pass = 'Pass · no pieces available to move'
   }
   if (epoch !== token) return
-  if (action) {
-    const before = { ...game, b: { ...game.b } }
-    const { from, to, promotion, power } = action,
-      p = game.b[from],
-      q = game.b[to]
-    if (power) {
-      usePower(game, from, to, power)
-      recordPly(
-        before,
-        action,
-        c,
-        game.side,
-        abilities[power] + ' · ' + from + (to ? ' → ' + to : ''),
-        by,
-      )
-    } else {
-      move(game, from, to, promotion)
-      recordPly(
-        before,
-        action,
-        c,
-        game.side,
-        label(p.t) +
-          ' ' +
-          from +
-          (q ? ' × ' : ' → ') +
-          to +
-          (promotion ? ' = ' + label(promotion) : ''),
-        by,
-      )
-    }
-  } else log(pass, by)
-  game.pending = false
+  let extra=false
+  if(action){
+    const before={...game,b:{...game.b}}, {from,to,promotion,power}=action, p=game.b[from], q=game.b[to]
+    if(applyBotAction(game,action,c)){
+      extra=!!action.double&&!followup
+      if(globalPowers.has(power)||extra)game.botCooldown=3
+      else if(!followup&&game.botCooldown>0)game.botCooldown--
+      if(extra)log('Double turn activated',by)
+      const description=power
+        ? (actionNames[power]||abilities[power]||power)+' · '+(power==='expand'?action.size+' × '+action.size:power==='rewind'?'restored earlier board':power==='spawn'?label(action.type)+' at '+to:from||to||'')+(to&&to!==from&&power!=='spawn'?' → '+to:'')
+        : label(p.t)+' '+from+(q?' × ':' → ')+to+(promotion?' = '+label(promotion):'')
+      recordPly(before,action,c,extra?c:game.side,description,by)
+    }else{pass='Bot action rejected';log(pass,by)}
+  }else{log(pass,by);if(!followup&&game.botCooldown>0)game.botCooldown--}
+  game.botFollowup=extra&&!game.result
+  game.pending=game.botFollowup
   resetSelection()
   notice = pass
   save()
   render()
   chime(true)
   if (game.result) showResult()
+  else if(game.botFollowup){notice='Opponent activated Double turn!';renderStatus();scheduleBot()}
   else if (dialogPage === 'history' && modal.open) showHistory()
 }
 function scheduleBot() {
@@ -914,7 +897,7 @@ function showHelp() {
     ['Board effects','Red highlights identify attacked kings. Right-click a square to mark it, or right-drag to draw an arrow. Customize board colors and animations in settings.'],
     [
       'Bot turns',
-      'Stockfish plays conventional positions. The sandbox engine handles custom pieces, missing kings, and other unusual positions. Change the bot or request a move in settings.',
+      'Stockfish plays conventional positions and switches to Nexus on nonstandard boards. Nexus adapts, Aegis protects its king, Bytecat prefers chaotic powers and Architect expands or builds. Bots simulate custom abilities and may use global powers if enabled, with a cooldown. Direct global removal or conversion of kings is disabled for fair play.',
     ],
   ]
   dialog(
@@ -939,7 +922,10 @@ function botFields() {
     selectOptions(
       [
         ['fish', 'Stockfish'],
-        ['cat', 'Bytecat · tricky sandbox bot'],
+        ['adaptive','Nexus · adaptive sandbox'],
+        ['guardian','Aegis · defensive sandbox'],
+        ['cat', 'Bytecat · chaos sandbox'],
+        ['architect','Architect · builder sandbox'],
       ],
       prefs.bot,
     ) +
@@ -965,6 +951,7 @@ function settings() {
     botFields() +
       [
         ['auto', 'Automatic bot replies'],
+        ['botPowers','Allow sandbox bots to use global powers'],
         ['coords', 'Board coordinates'],
         ['sound', 'Move sounds'],
         ['effects', 'Animated moves and powers'],
@@ -987,7 +974,7 @@ function settings() {
   function apply() {
     cancelBot()
     readBotFields()
-    for (const k of ['auto', 'coords', 'sound', 'effects', 'cinematic']) prefs[k] = $('pref-' + k).checked
+    for (const k of ['auto', 'coords', 'sound', 'effects', 'cinematic','botPowers']) prefs[k] = $('pref-' + k).checked
     prefs.theme = $('theme').value
     game.pending = game.pending && prefs.auto
     save()
