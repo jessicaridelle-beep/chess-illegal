@@ -1456,3 +1456,16 @@ input[type='checkbox'] {
 .square.fx-hole::after{background:radial-gradient(circle,#080510 15%,#1d103c 28%,#a56aff 36%,#2c124f 48%,transparent 69%);animation:gravity-well 850ms ease-out both}
 @keyframes gravity-well{0%{opacity:0;transform:scale(.3) rotate(0)}30%{opacity:1;transform:scale(1.15) rotate(80deg)}80%{opacity:.9;transform:scale(.6) rotate(220deg)}100%{opacity:0;transform:scale(0) rotate(320deg)}}
 @media(max-width:700px){.tool-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.tool{display:flex;text-align:left;padding:8px}.tool small{display:block;font-size:10px}.board[data-size="16"] .piece{width:90%;height:90%}}
+
+/* Human-only reality powers */
+.tool[data-tool="lock"] svg{color:#c49aff}
+.tool[data-tool="clone"] svg{color:#65e8c2}
+.tool[data-tool="immortal"] svg{color:#ffd36e}
+.tool[data-tool="freeze"] svg{color:#86dfff}
+.square.immortal-piece{box-shadow:inset 0 0 0 3px #ffd36e,inset 0 0 14px #ffe4a180}
+.square.immortal-piece .piece{filter:drop-shadow(0 0 4px #fbc84d)}
+.square.frozen-piece .piece{filter:drop-shadow(0 0 4px #55c8ff) saturate(.4)}
+.square.locked-piece{outline:2px solid #9a72ca;outline-offset:-3px}
+.square.fx-clone::after,.square.fx-immortal::after{background:radial-gradient(circle,#fff6c4 0%,#6fe8bd66 30%,transparent 70%);animation:gravity-well 650ms ease-out both}
+.board[data-frozen]:not([data-frozen="0"]){box-shadow:0 0 0 3px #60b8eb,0 0 18px #65bbff70}
+.board[data-locked="true"]{outline:3px solid #b78af1}
