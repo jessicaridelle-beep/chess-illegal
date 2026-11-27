@@ -1,4 +1,6 @@
 const outlines = {
+  control: '<circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="3"/><path d="M12 1v5m0 12v5M1 12h5m12 0h5"/>',
+  convert: '<path d="M4 8h13l-4-4m7 12H7l4 4"/><path d="m18 4 2 4-2 4M6 12l-2 4 2 4"/><circle cx="12" cy="12" r="2"/>',
   arena:
     '<rect x="3" y="3" width="18" height="18" rx="3"/><path d="M12 3v18M3 12h18"/><path fill="currentColor" stroke="none" d="M4 4h8v8H4zm8 8h8v8h-8z"/>',
   library: '<path d="m3 5 5-1v15l-5 1zM10 4h4v15h-4zm6 1 4-1 3 15-4 1z"/>',
