@@ -15,7 +15,7 @@ import {
   destinations,
   threatenedKings,
   convertPiece,
-  boardSize, boardFiles, boardRanks, allSquares, expandBoard, blackHole, xy, legalBotTrial, sandboxNoMove, clonePiece, toggleImmortality, freezeBot, toggleRealityLock, consumeBotFreeze,
+  boardSize, boardFiles, boardRanks, allSquares, expandBoard, blackHole, xy, legalBotTrial, sandboxNoMove, clonePiece, toggleImmortality, freezeBot, toggleRealityLock, consumeBotFreeze, godTrial, godPower,
 } from './game.mjs'
 import { stockfishMove, compareMove } from './engine.mjs'
 import { grades, reviewMove, engineGrade } from './review.mjs'
@@ -56,11 +56,11 @@ let mode = 'move',
 let lastAnimated = game.logs.at(-1)?.id, annotations = [], arrowStart = null, revealed = new Set(game.logs.filter(x=>!x.search).map(x=>x.id))
 const catalog = () => [...originals, ...custom]
 const label = (t) => names[t] || catalog().find((x) => x.id === t)?.name || 'Custom piece'
-const botProfiles = {cat:['Bytecat','chaos',400,'beginner'],architect:['Architect','adaptive',900,'easy'],guardian:['Aegis','guardian',1500,'medium'],adaptive:['Nexus','adaptive',2200,'hard'],fish:['Stockfish','adaptive',3200,'master']}
+const botProfiles = {cat:['Bytecat','chaos',400,'beginner'],architect:['Architect','adaptive',900,'easy'],guardian:['Aegis','guardian',1500,'medium'],adaptive:['Nexus','adaptive',2200,'hard'],fish:['Stockfish','adaptive',3200,'master'],gpt:['GPT','guardian',9999,'master']}
 const profile = () => botProfiles[prefs.bot] || botProfiles.fish
 const botTitle = () => profile()[0]
 const globalPowers = new Set(['hole','convert','delete','control','spawn','expand','rewind'])
-const actionNames = {hole:'Black hole',convert:'Conversion',delete:'Delete',control:'Control',spawn:'Spawn',expand:'Board expansion',rewind:'Time reversal'}
+const actionNames = {flip:'Reality flip',sidestep:'Illegal sidestep',hole:'Black hole',convert:'Conversion',delete:'Delete',control:'Control',spawn:'Spawn',expand:'Board expansion',rewind:'Time reversal'}
 const toolInfo = [
   ['move', 'Move', 'Any square'],
   ['spawn', 'Spawn', 'Add a piece'],
@@ -622,9 +622,10 @@ function renderStatus() {
   $('match-result').hidden = !game.result
   if (game.result) $('result-summary').textContent = resultTitle() + ' · ' + game.result.reason
   $('bot-name').textContent = botTitle()+' ('+profile()[2]+')'
-  $('bot-avatar').src = prefs.bot === 'cat' ? 'art/cat.svg' : 'art/bot.svg'
-  const compatible = prefs.bot === 'fish' && orthodox(game, other(game.side))
-  $('bot-detail').textContent = (compatible?'Stockfish':'Sandbox engine')+' · '+colorName(other(game.side))+' · No powers'+(game.realityLock?' · Locked':'')+(game.frozenTurns>0?' · Frozen '+game.frozenTurns:'')
+  $('bot-avatar').src = prefs.bot === 'cat' ? 'art/cat.svg' : prefs.bot === 'gpt' ? 'art/ai-god.svg' : 'art/bot.svg'
+  document.querySelector('.bot-tag').textContent = prefs.bot === 'gpt' ? 'AI GOD' : 'BOT'
+  const compatible = ['fish','gpt'].includes(prefs.bot) && orthodox(game, other(game.side))
+  $('bot-detail').textContent = (compatible?'Stockfish':'Sandbox engine')+' · '+colorName(other(game.side))+(prefs.bot==='gpt'?' · Limited powers · '+(game.godCooldown>0?'Cooldown '+game.godCooldown:'Ready'):' · No powers')+(game.realityLock?' · Locked':'')+(game.frozenTurns>0?' · Frozen '+game.frozenTurns:'')
   $('player-side').textContent = colorName(game.side) + ' pieces'
   $('side-dot').classList.toggle('black', game.side === 'b')
   $('undo').disabled = !undoStack.length
@@ -697,11 +698,12 @@ async function botMove(token) {
   if (epoch !== token || !game.pending || game.result) return
   if(consumeBotFreeze(game)){game.pending=false;game.botFollowup=false;log('Time freeze · bot skips turn ('+game.frozenTurns+' remaining)');notice='Bot turn skipped';save();render();return}
   const c = other(game.side), followup=false,
-    ch = prefs.bot === 'fish' && !followup ? orthodox(game, c) : null
-  let action = null,
+    ch = ['fish','gpt'].includes(prefs.bot) && !followup ? orthodox(game, c) : null
+  let action = prefs.bot==='gpt' ? godPower(game,catalog()) : null,
     by = botTitle(),
     pass = ''
-  if (ch) {
+  if (action) { /* validated limited power candidate */ }
+  else if (ch) {
     const moves = ch.moves({ verbose: true })
     if (!moves.length) {
       game.result = matchOutcome(game, game, c)
@@ -728,17 +730,21 @@ async function botMove(token) {
   let extra=false
   if(action){
     const before={...game,b:{...game.b}}, {from,to,promotion,power}=action, p=game.b[from], q=game.b[to]
-    const safe=legalBotTrial(game,action,c,catalog())
+    const safe=prefs.bot==='gpt'?godTrial(game,action,c,catalog()):legalBotTrial(game,action,c,catalog())
     if(safe){
       Object.assign(game,safe)
       extra=false
+      if(prefs.bot==='gpt'&&!power&&game.godCooldown>0)game.godCooldown--
       if(globalPowers.has(power)||extra)game.botCooldown=3
       else if(!followup&&game.botCooldown>0)game.botCooldown--
       if(extra)log('Double turn activated',by)
       const description=power
         ? (actionNames[power]||abilities[power]||power)+' · '+(power==='expand'?action.size+' × '+action.size:power==='rewind'?'restored earlier board':power==='spawn'?label(action.type)+' at '+to:from||to||'')+(to&&to!==from&&power!=='spawn'?' → '+to:'')
         : label(p.t)+' '+from+(q?' × ':' → ')+to+(promotion?' = '+label(promotion):'')
-      recordPly(before,action,c,extra?c:game.side,description,by)
+      if(power==='flip'){
+        spawnColor=game.side;annotations=[]
+        Object.assign(log('Reality flip · you now play '+colorName(game.side),by),{id:crypto.randomUUID(),fx:{power:'flip'}})
+      }else recordPly(before,action,c,extra?c:game.side,description,by)
     }else{pass='Bot action rejected';log(pass,by)}
   }else{log(pass,by);if(!followup&&game.botCooldown>0)game.botCooldown--}
   game.botFollowup=extra&&!game.result
@@ -926,7 +932,7 @@ function showHelp() {
     ['Board effects','Red highlights identify attacked kings. Right-click a square to mark it, or right-drag to draw an arrow. Customize board colors and animations in settings.'],
     [
       'Bot turns',
-      'Bots never use powers, even when controlling a custom piece. They must move legally and protect their king. Each opponent has a different estimated Elo and search strength. Only the player can use unlimited cloning, immortality, time freeze, reality lock and other tools.'
+      'Ordinary bots never use powers, even when controlling a custom piece. They must move legally and protect their king. Each opponent has a different estimated Elo and search strength. Only GPT (AI GOD) is an exception: up to two pawn spawns, one reality flip, and limited non-capturing sidesteps with a four-turn cooldown. It cannot check a king directly using a power. All other powers remain player-only.'
     ],
   ]
   dialog(
@@ -946,7 +952,7 @@ function selectOptions(values, current) {
     .join('')
 }
 function botFields(){
-  return '<label class="form-field">Opponent · estimated Elo<select id="opponent">'+selectOptions(Object.entries(botProfiles).map(([id,p])=>[id,p[0]+' · '+p[2]+' Elo']),prefs.bot)+'</select></label><p class="dialog-copy">Only you can use abilities. Ratings are fictional difficulty targets, not measured Elo.</p>'
+  return '<label class="form-field">Opponent · estimated Elo<select id="opponent">'+selectOptions(Object.entries(botProfiles).map(([id,p])=>[id,p[0]+' · '+p[2]+' Elo'+(id==='gpt'?' · AI GOD':'')]),prefs.bot)+'</select></label><p class="dialog-copy">Only GPT / AI GOD can use limited powers. Other bots have none. All ratings are fictional difficulty targets, not measured Elo.</p>'
 }
 function readBotFields(){prefs.bot=$('opponent').value;prefs.level=profile()[3]}
 function settings() {
