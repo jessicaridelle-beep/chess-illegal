@@ -1,0 +1,250 @@
+import { Chess, validateFen } from './vendor/chess.mjs'
+import { names } from './ui.mjs'
+export const files = 'abcdefgh'
+export const ranks = [8, 7, 6, 5, 4, 3, 2, 1]
+export const other = (c) => (c === 'w' ? 'b' : 'w')
+export const colorName = (c) => (c === 'w' ? 'White' : 'Black')
+export const xy = (s) => [files.indexOf(s[0]), Number(s[1]) - 1]
+export const at = (x, y) => (x >= 0 && x < 8 && y >= 0 && y < 8 ? files[x] + (y + 1) : null)
+const copy = (value) => JSON.parse(JSON.stringify(value))
+export function fresh() {
+  const b = {}
+  for (let x = 0; x < 8; x++)
+    for (const [c, pawn, back] of [
+      ['w', 2, 1],
+      ['b', 7, 8],
+    ]) {
+      b[files[x] + pawn] = { c, t: 'p' }
+      b[files[x] + back] = { c, t: 'rnbqkbnr'[x] }
+    }
+  return { b, side: 'w', view: 'w', rights: 'KQkq', ep: '-', last: [], logs: [], pending: false }
+}
+export function fen(s, turn) {
+  let rows = []
+  for (const rank of ranks) {
+    let row = '',
+      gap = 0
+    for (const f of files) {
+      const p = s.b[f + rank]
+      if (!p) {
+        gap++
+        continue
+      }
+      if (!names[p.t]) return null
+      if (gap) row += gap
+      gap = 0
+      row += p.c === 'w' ? p.t.toUpperCase() : p.t
+    }
+    rows.push(row + (gap || ''))
+  }
+  const ep = s.ep[1] === (turn === 'w' ? '6' : '3') ? s.ep : '-'
+  return rows.join('/') + ' ' + turn + ' ' + (s.rights || '-') + ' ' + ep + ' 0 1'
+}
+// Only pass conventional material and playable king arrangements to Stockfish.
+export function orthodox(s, turn) {
+  const str = fen(s, turn)
+  if (!str) return null
+  for (const c of ['w', 'b']) {
+    const pieces = Object.values(s.b).filter((p) => p.c === c)
+    const count = (t) => pieces.filter((p) => p.t === t).length
+    if (count('k') !== 1 || count('p') > 8 || pieces.length > 16) return null
+    const extras = ['q', 'r', 'b', 'n'].reduce(
+      (n, t) => n + Math.max(0, count(t) - (t === 'q' ? 1 : 2)),
+      0,
+    )
+    if (extras > 8 - count('p')) return null
+  }
+  if (!validateFen(str).ok) return null
+  const ch = new Chess(str)
+  const enemyKing = Object.keys(s.b).find((sq) => s.b[sq].c !== turn && s.b[sq].t === 'k')
+  if (ch.isAttacked(enemyKing, turn)) return null
+  return ch
+}
+function removeRights(s, sq, p) {
+  if (!p) return
+  if (p.t === 'k') s.rights = s.rights.replace(p.c === 'w' ? /[KQ]/g : /[kq]/g, '')
+  if (p.t === 'r') {
+    const file = { a1: 'Q', h1: 'K', a8: 'q', h8: 'k' }[sq]
+    if (file) s.rights = s.rights.replace(file, '')
+  }
+}
+export function edit(s, sq, p) {
+  removeRights(s, sq, s.b[sq])
+  s.ep = '-'
+  if (p) s.b[sq] = p
+  else delete s.b[sq]
+  s.last = [sq]
+}
+export function move(s, from, to, promotion) {
+  const p = s.b[from]
+  if (!p || from === to) return
+  const victim = s.b[to]
+  const ch = orthodox(s, p.c)
+  const normal = ch
+    ?.moves({ square: from, verbose: true })
+    .find((m) => m.to === to && (!m.promotion || m.promotion === promotion))
+  removeRights(s, from, p)
+  removeRights(s, to, victim)
+  s.ep = '-'
+  if (normal) {
+    if (normal.isEnPassant()) delete s.b[to[0] + from[1]]
+    if (normal.isKingsideCastle() || normal.isQueensideCastle()) {
+      const short = normal.isKingsideCastle(),
+        rank = from[1],
+        rook = (short ? 'h' : 'a') + rank
+      s.b[(short ? 'f' : 'd') + rank] = s.b[rook]
+      delete s.b[rook]
+    }
+    if (normal.isBigPawn()) s.ep = from[0] + (Number(from[1]) + Number(to[1])) / 2
+  }
+  delete s.b[from]
+  s.b[to] = { c: p.c, t: promotion || p.t }
+  s.last = [from, to]
+}
+export function neighbors(sq) {
+  const [x, y] = xy(sq)
+  return [-1, 0, 1]
+    .flatMap((a) => [-1, 0, 1].filter((b) => a || b).map((b) => at(x + a, y + b)))
+    .filter(Boolean)
+}
+export function usePower(s, from, to, kind) {
+  const p = s.b[from]
+  if (!p) return false
+  if (kind === 'radiance') {
+    const targets = neighbors(from).filter((sq) => s.b[sq] && s.b[sq].c !== p.c)
+    if (!targets.length) return false
+    for (const sq of targets) {
+      removeRights(s, sq, s.b[sq])
+      s.b[sq] = { ...s.b[sq], c: p.c }
+    }
+    s.last = [from, ...targets]
+  } else if (kind === 'exchange') {
+    if (!to || to === from || !s.b[to]) return false
+    const q = s.b[to]
+    removeRights(s, to, q)
+    s.b[from] = q
+    s.b[to] = p
+    s.last = [from, to]
+  } else if (kind === 'leap') {
+    if (!to) return false
+    const [x, y] = xy(from),
+      [a, b] = xy(to),
+      dx = Math.abs(x - a),
+      dy = Math.abs(y - b)
+    if (Math.max(dx, dy) !== 2 || (dx !== 0 && dx !== 2) || (dy !== 0 && dy !== 2)) return false
+    const mid = at((x + a) / 2, (y + b) / 2)
+    if (s.b[mid] && s.b[mid].c !== p.c) {
+      removeRights(s, mid, s.b[mid])
+      s.b[mid] = { ...s.b[mid], c: p.c }
+    }
+    edit(s, to, p)
+    delete s.b[from]
+    s.last = [from, to]
+  } else return false
+  s.ep = '-'
+  return true
+}
+const values = { p: 1, n: 3, b: 3.2, r: 5, q: 9, k: 14 }
+const price = (p) => (p ? values[p.t] || 6 : 0)
+function movement(b, from, to) {
+  const p = b[from],
+    [x, y] = xy(from),
+    [tx, ty] = xy(to),
+    dx = tx - x,
+    dy = ty - y,
+    ax = Math.abs(dx),
+    ay = Math.abs(dy)
+  if (from === to || b[to]?.c === p.c) return false
+  if (!names[p.t]) return Math.max(ax, ay) < 3
+  if (p.t === 'k') return Math.max(ax, ay) === 1
+  if (p.t === 'n') return ax * ay === 2
+  if (p.t === 'p') {
+    const d = p.c === 'w' ? 1 : -1
+    if (ax === 1) return dy === d && !!b[to]
+    if (ax || b[to]) return false
+    return dy === d || (dy === 2 * d && y === (d > 0 ? 1 : 6) && !b[at(x, y + d)])
+  }
+  const diagonal = ax === ay,
+    straight = dx === 0 || dy === 0
+  if (
+    !(
+      (p.t === 'q' && (diagonal || straight)) ||
+      (p.t === 'r' && straight) ||
+      (p.t === 'b' && diagonal)
+    )
+  )
+    return false
+  const sx = Math.sign(dx),
+    sy = Math.sign(dy)
+  for (let i = 1; i < Math.max(ax, ay); i++) if (b[at(x + sx * i, y + sy * i)]) return false
+  return true
+}
+export function sandboxReply(s, catalog, level, cat) {
+  const c = other(s.side),
+    own = Object.keys(s.b).filter((k) => s.b[k].c === c),
+    enemy = Object.keys(s.b).filter((k) => s.b[k].c !== c)
+  let best = null,
+    maximum = -Infinity
+  function consider(action, score) {
+    score += Math.random() * (cat ? 3 : level === 'relaxed' ? 4 : level === 'sharp' ? 0.35 : 1)
+    if (score > maximum) {
+      maximum = score
+      best = action
+    }
+  }
+  for (const from of own) {
+    const p = s.b[from],
+      power = catalog.find((k) => k.id === p.t)?.power
+    if (power === 'radiance') {
+      const score = neighbors(from).reduce(
+        (v, sq) => v + (s.b[sq]?.c === other(c) ? price(s.b[sq]) * 1.65 : 0),
+        0,
+      )
+      if (score) consider({ from, power }, score)
+    }
+    for (const f of files)
+      for (const rank of ranks) {
+        const to = f + rank
+        if (to === from || s.b[to]?.c === c) continue
+        if (power === 'exchange' && s.b[to]) {
+          const [x, y] = xy(to)
+          consider(
+            { from, to, power },
+            (3.5 - Math.abs(3.5 - x)) * 0.15 + (3.5 - Math.abs(3.5 - y)) * 0.15,
+          )
+        }
+        if (power === 'leap') {
+          const [x, y] = xy(from),
+            [a, b] = xy(to),
+            dx = Math.abs(x - a),
+            dy = Math.abs(y - b)
+          if (Math.max(dx, dy) === 2 && [0, 2].includes(dx) && [0, 2].includes(dy)) {
+            const mid = s.b[at((x + a) / 2, (y + b) / 2)]
+            consider(
+              { from, to, power },
+              price(s.b[to]) * 1.4 + (mid?.c === other(c) ? price(mid) * 1.6 : 0),
+            )
+          }
+        }
+        if (!movement(s.b, from, to)) continue
+        const [x, y] = xy(to),
+          b = { ...s.b, [to]: p }
+        delete b[from]
+        let score = price(s.b[to]) * 1.5 + (7 - Math.abs(x - 3.5) - Math.abs(y - 3.5)) * 0.12
+        if (enemy.some((sq) => sq !== to && movement(b, sq, to))) score -= price(p) * 0.68
+        if (p.t === 'p' && rank === (c === 'w' ? 8 : 1)) score += 8
+        consider(
+          { from, to, promotion: p.t === 'p' && rank === (c === 'w' ? 8 : 1) ? 'q' : undefined },
+          score,
+        )
+      }
+  }
+  if (best) return best
+  if (!own.length) return null
+  const to = files
+    .split('')
+    .flatMap((f) => ranks.map((r) => f + r))
+    .find((sq) => s.b[sq]?.c !== c)
+  return to ? { from: own[0], to } : null
+}
+export const clone = copy

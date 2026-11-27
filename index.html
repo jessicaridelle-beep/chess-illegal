@@ -1,0 +1,151 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover" />
+    <meta name="theme-color" content="#191b18" />
+    <title>chessbotillegal · Sandbox arena</title>
+    <meta
+      name="description"
+      content="An unrestricted chess playground against bots. Move, spawn, delete, and forge your own pieces."
+    />
+    <link rel="icon" href="art/brand.svg" />
+    <link rel="stylesheet" href="style.css" />
+  </head>
+  <body>
+    <header class="top">
+      <div class="top-inner">
+        <a href="#arena" class="brand" aria-label="chessbotillegal arena"
+          ><img src="art/brand.svg" alt="" /><span>CHESSBOT<span>ILLEGAL</span></span></a
+        >
+        <nav aria-label="Main navigation">
+          <button class="nav-item active" data-nav="arena"><i data-icon="arena"></i>Arena</button
+          ><button class="nav-item" data-nav="library">
+            <i data-icon="library"></i>Piece library</button
+          ><button class="nav-item" data-nav="history">
+            <i data-icon="history"></i>Move history
+          </button>
+        </nav>
+        <div class="top-actions">
+          <button class="icon-btn" id="help" aria-label="How to play" title="How to play">
+            <i data-icon="help"></i></button
+          ><button class="icon-btn" id="settings" aria-label="Game settings" title="Game settings">
+            <i data-icon="settings"></i>
+          </button>
+        </div>
+      </div>
+    </header>
+    <main id="arena">
+      <div class="title-row">
+        <div>
+          <h1>Sandbox <em>arena</em><span class="title-dot">.</span></h1>
+          <p>Freeform chess against the machine.</p>
+        </div>
+        <button class="primary" id="new"><i data-icon="plus"></i>New game</button>
+      </div>
+      <div class="layout">
+        <section class="play-area" aria-label="Game board">
+          <div class="player-row">
+            <img id="bot-avatar" src="art/bot.svg" class="avatar" alt="" />
+            <div class="player">
+              <div class="player-name">
+                <strong id="bot-name">Stockfish</strong><span class="bot-tag">BOT</span>
+              </div>
+              <small id="bot-detail">Balanced engine</small>
+            </div>
+            <button
+              id="bot-config"
+              class="mini-icon"
+              title="Configure opponent"
+              aria-label="Configure opponent"
+            >
+              <i data-icon="sliders"></i>
+            </button>
+          </div>
+          <div class="board-frame">
+            <div class="board" id="board" role="group" aria-label="Chessboard"></div>
+          </div>
+          <div class="player-row player-bottom">
+            <div class="avatar your-avatar"><i data-icon="user"></i></div>
+            <div class="player">
+              <div class="player-name">
+                <strong>You</strong><span class="side-dot" id="side-dot"></span>
+              </div>
+              <small id="player-side">White pieces</small>
+            </div>
+            <div class="turn"><span></span><b id="turn">Your turn</b></div>
+          </div>
+          <div class="board-bottom">
+            <div class="board-hint" id="hint" role="status"></div>
+            <div class="board-buttons">
+              <button id="undo" class="mini-icon" title="Undo (Ctrl / ⌘ Z)" aria-label="Undo">
+                <i data-icon="undo"></i></button
+              ><button id="redo" class="mini-icon" title="Redo" aria-label="Redo">
+                <i data-icon="redo"></i></button
+              ><span class="separator"></span
+              ><button
+                id="rotate"
+                class="mini-icon"
+                title="Rotate board view"
+                aria-label="Rotate board view"
+              >
+                <i data-icon="rotate"></i>
+              </button>
+            </div>
+          </div>
+          <div id="power-area"></div>
+        </section>
+        <aside class="deck" aria-label="Sandbox tools">
+          <section class="panel tools-panel">
+            <div class="panel-heading">
+              <span class="heading-icon"><i data-icon="sliders"></i></span>
+              <h2>Board tools</h2>
+              <span class="live-dot" title="Tools enabled"></span>
+            </div>
+            <div id="tool-grid" class="tool-grid"></div>
+          </section>
+          <section class="panel palette-panel">
+            <div class="panel-heading">
+              <span class="heading-icon"><i data-icon="grid"></i></span>
+              <h2>Piece palette</h2>
+            </div>
+            <div class="palette-body">
+              <div class="palette-head">
+                <span>Spawn color</span>
+                <div class="segments" aria-label="Spawn color">
+                  <button data-color="w"><i></i>White</button
+                  ><button data-color="b"><i></i>Black</button>
+                </div>
+              </div>
+              <div class="tray" id="tray"></div>
+              <p class="tray-hint">Pick a piece, then a square to spawn it.</p>
+            </div>
+          </section>
+          <section class="feature" aria-label="Featured custom piece">
+            <div class="feature-text">
+              <span class="custom-kicker"><i data-icon="star"></i> CUSTOM PIECE</span>
+              <h2>Illuminator</h2>
+              <p>Convert nearby enemies with Radiance.</p>
+              <button id="feature-spawn">Spawn piece <i data-icon="arrow"></i></button>
+            </div>
+            <img class="feature-art" src="art/illuminator.svg" alt="" />
+          </section>
+          <button class="library-link" data-nav="library">
+            <i data-icon="library"></i>Explore piece library<i data-icon="arrow"></i>
+          </button>
+        </aside>
+      </div>
+    </main>
+    <dialog id="modal">
+      <div class="dialog-head">
+        <div>
+          <span class="dialog-mark"></span>
+          <h2 id="dialog-title"></h2>
+        </div>
+        <button id="dismiss" class="mini-icon" aria-label="Close"><i data-icon="close"></i></button>
+      </div>
+      <div id="dialog-content"></div>
+    </dialog>
+    <script type="module" src="app.mjs"></script>
+  </body>
+</html>
