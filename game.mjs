@@ -4,8 +4,35 @@ export const files = 'abcdefgh'
 export const ranks = [8, 7, 6, 5, 4, 3, 2, 1]
 export const other = (c) => (c === 'w' ? 'b' : 'w')
 export const colorName = (c) => (c === 'w' ? 'White' : 'Black')
-export const xy = (s) => [files.indexOf(s[0]), Number(s[1]) - 1]
-export const at = (x, y) => (x >= 0 && x < 8 && y >= 0 && y < 8 ? files[x] + (y + 1) : null)
+const alphabet = 'abcdefghijklmnop'
+export const boardSize = s => [8,12,16].includes(s?.size) ? s.size : 8
+export const boardFiles = s => alphabet.slice(0,boardSize(s))
+export const boardRanks = s => Array.from({length:boardSize(s)},(_,i)=>boardSize(s)-i)
+export const allSquares = s => [...boardFiles(s)].flatMap(f=>boardRanks(s).map(r=>f+r))
+export const xy = s => [alphabet.indexOf(s[0]),Number(s.slice(1))-1]
+export const at = (x,y,size=8) => x>=0 && x<size && y>=0 && y<size ? alphabet[x]+(y+1):null
+export function expandBoard(s,size) {
+  if (![12,16].includes(size) || size<=boardSize(s)) return false
+  s.size=size; s.rights=''; s.ep='-'; s.last=[]
+  return true
+}
+// One-shot gravity: absorb the center and adjacent pieces, then pull the outer ring inward.
+export function blackHole(s,center) {
+  if(!allSquares(s).includes(center)) return false
+  const size=boardSize(s), [x,y]=xy(center)
+  const affected=[center,...neighbors(center,size)]
+  const ring=Object.entries(s.b).filter(([sq])=>{const [a,b]=xy(sq);return Math.max(Math.abs(a-x),Math.abs(b-y))===2})
+  for(const sq of affected) if(s.b[sq]) edit(s,sq,null)
+  // Multiple incoming pieces choose the same cell: the first in coordinate order remains;
+  // other pieces stay in their original square.
+  for(const [sq,p] of ring.sort(([a],[b])=>a.localeCompare(b))) {
+    const [a,b]=xy(sq), dest=at(a+Math.sign(x-a),b+Math.sign(y-b),size)
+    if(!dest || s.b[dest]) continue
+    edit(s,sq,null); edit(s,dest,p); affected.push(sq,dest)
+  }
+  s.last=[...new Set(affected)];s.ep='-'
+  return true
+}
 const copy = (value) => JSON.parse(JSON.stringify(value))
 export function fresh() {
   const b = {}
@@ -17,9 +44,10 @@ export function fresh() {
       b[files[x] + pawn] = { c, t: 'p' }
       b[files[x] + back] = { c, t: 'rnbqkbnr'[x] }
     }
-  return { b, side: 'w', view: 'w', rights: 'KQkq', ep: '-', last: [], logs: [], pending: false }
+  return { b, size:8, doubleTurn:0, side: 'w', view: 'w', rights: 'KQkq', ep: '-', last: [], logs: [], pending: false }
 }
 export function fen(s, turn) {
+  if (boardSize(s)!==8) return null
   let rows = []
   for (const rank of ranks) {
     let row = '',
@@ -108,17 +136,17 @@ export function move(s, from, to, promotion) {
   s.b[to] = { c: p.c, t: promotion || p.t }
   s.last = [from, to]
 }
-export function neighbors(sq) {
+export function neighbors(sq, size=8) {
   const [x, y] = xy(sq)
   return [-1, 0, 1]
-    .flatMap((a) => [-1, 0, 1].filter((b) => a || b).map((b) => at(x + a, y + b)))
+    .flatMap((a) => [-1, 0, 1].filter((b) => a || b).map((b) => at(x + a, y + b,size)))
     .filter(Boolean)
 }
 export function usePower(s, from, to, kind) {
   const p = s.b[from]
   if (!p) return false
   if (kind === 'radiance') {
-    const targets = neighbors(from).filter((sq) => s.b[sq] && s.b[sq].c !== p.c)
+    const targets = neighbors(from,boardSize(s)).filter((sq) => s.b[sq] && s.b[sq].c !== p.c)
     if (!targets.length) return false
     for (const sq of targets) {
       removeRights(s, sq, s.b[sq])
@@ -139,7 +167,7 @@ export function usePower(s, from, to, kind) {
       dx = Math.abs(x - a),
       dy = Math.abs(y - b)
     if (Math.max(dx, dy) !== 2 || (dx !== 0 && dx !== 2) || (dy !== 0 && dy !== 2)) return false
-    const mid = at((x + a) / 2, (y + b) / 2)
+    const mid = at((x + a) / 2, (y + b) / 2,boardSize(s))
     if (s.b[mid] && s.b[mid].c !== p.c) {
       removeRights(s, mid, s.b[mid])
       s.b[mid] = { ...s.b[mid], c: p.c }
@@ -164,7 +192,7 @@ export function usePower(s, from, to, kind) {
 }
 const values = { p: 1, n: 3, b: 3.2, r: 5, q: 9, k: 14 }
 const price = (p) => (p ? values[p.t] || 6 : 0)
-export function movement(b, from, to) {
+export function movement(b, from, to, size=8) {
   const p = b[from],
     [x, y] = xy(from),
     [tx, ty] = xy(to),
@@ -172,7 +200,7 @@ export function movement(b, from, to) {
     dy = ty - y,
     ax = Math.abs(dx),
     ay = Math.abs(dy)
-  if (from === to || b[to]?.c === p.c) return false
+  if (!p || from === to || b[to]?.c === p.c || !at(tx,ty,size)) return false
   if (!names[p.t]) return Math.max(ax, ay) < 3
   if (p.t === 'k') return Math.max(ax, ay) === 1
   if (p.t === 'n') return ax * ay === 2
@@ -180,7 +208,7 @@ export function movement(b, from, to) {
     const d = p.c === 'w' ? 1 : -1
     if (ax === 1) return dy === d && !!b[to]
     if (ax || b[to]) return false
-    return dy === d || (dy === 2 * d && y === (d > 0 ? 1 : 6) && !b[at(x, y + d)])
+    return dy === d || (dy === 2 * d && y === (d > 0 ? 1 : size-2) && !b[at(x, y + d,size)])
   }
   const diagonal = ax === ay,
     straight = dx === 0 || dy === 0
@@ -194,20 +222,19 @@ export function movement(b, from, to) {
     return false
   const sx = Math.sign(dx),
     sy = Math.sign(dy)
-  for (let i = 1; i < Math.max(ax, ay); i++) if (b[at(x + sx * i, y + sy * i)]) return false
+  for (let i = 1; i < Math.max(ax, ay); i++) if (b[at(x + sx * i, y + sy * i,size)]) return false
   return true
 }
-const squares = [...files].flatMap((file) => ranks.map((rank) => file + rank))
 export function powerTargets(s, from, kind) {
   const p = s.b[from]
   if (!p) return []
-  if (kind === 'nova' || kind === 'radiance') return neighbors(from).filter(sq => s.b[sq] && s.b[sq].c !== p.c)
-  if (kind === 'echo') return neighbors(from).filter(sq => !s.b[sq] && !['1','8'].includes(sq[1]))
+  if (kind === 'nova' || kind === 'radiance') return neighbors(from,boardSize(s)).filter(sq => s.b[sq] && s.b[sq].c !== p.c)
+  if (kind === 'echo') return neighbors(from,boardSize(s)).filter(sq => !s.b[sq] && !['1',String(boardSize(s))].includes(sq.slice(1)))
   if (kind === 'beam') {
     const [x,y] = xy(from), out = []
     for (const [dx,dy] of [[1,0],[-1,0],[0,1],[0,-1]]) {
       for (let i=1;i<=4;i++) {
-        const to = at(x+dx*i,y+dy*i)
+        const to = at(x+dx*i,y+dy*i,boardSize(s))
         if (!to) break
         if (!s.b[to]) continue
         if (s.b[to].c !== p.c) out.push(to)
@@ -226,7 +253,7 @@ export function threatenedKings(s, catalog = []) {
     const attacked = Object.entries(s.b).some(([from,q]) => {
       if (q.c === p.c) return false
       const power = catalog.find(k=>k.id===q.t)?.power
-      return movement(s.b,from,sq) || (['nova','radiance','beam'].includes(power) && powerTargets(s,from,power).includes(sq))
+      return movement(s.b,from,sq,boardSize(s)) || (['nova','radiance','beam'].includes(power) && powerTargets(s,from,power).includes(sq))
     })
     if (attacked) checked.push(sq)
   }
@@ -238,22 +265,23 @@ export function destinations(state, from, power) {
   const piece = state.b[from]
   if (!piece) return []
   if (['nova','radiance','echo','beam'].includes(power)) return powerTargets(state, from, power)
-  if (power === 'exchange') return squares.filter((to) => to !== from && state.b[to])
+  if (power === 'exchange') return allSquares(state).filter((to) => to !== from && state.b[to])
   if (power === 'leap') {
     const [x, y] = xy(from)
     return [-2, 0, 2]
-      .flatMap((dx) => [-2, 0, 2].filter((dy) => dx || dy).map((dy) => at(x + dx, y + dy)))
+      .flatMap((dx) => [-2, 0, 2].filter((dy) => dx || dy).map((dy) => at(x + dx, y + dy,boardSize(state))))
       .filter(Boolean)
   }
   const chess = orthodox(state, piece.c)
   if (chess)
     return [...new Set(chess.moves({ square: from, verbose: true }).map((move) => move.to))]
-  return squares.filter((to) => movement(state.b, from, to))
+  return allSquares(state).filter((to) => movement(state.b, from, to,boardSize(state)))
 }
 
 export function matchOutcome(before, after, nextSide) {
   const hasKing = (board, color) =>
     Object.values(board).some((piece) => piece.t === 'k' && piece.c === color)
+  if (['w','b'].every(c=>hasKing(before.b,c)&&!hasKing(after.b,c))) return {winner:null,reason:'Both kings lost'}
   for (const color of ['w', 'b']) {
     if (hasKing(before.b, color) && !hasKing(after.b, color)) {
       return { winner: other(color), reason: 'Last king taken' }
@@ -290,14 +318,14 @@ export function sandboxReply(s, catalog, level, cat) {
       if (power === 'echo') for (const to of targets) consider({from,to,power},1.6)
     }
     if (power === 'radiance') {
-      const score = neighbors(from).reduce(
+      const score = neighbors(from,boardSize(s)).reduce(
         (v, sq) => v + (s.b[sq]?.c === other(c) ? price(s.b[sq]) * 1.65 : 0),
         0,
       )
       if (score) consider({ from, power }, score)
     }
-    for (const f of files)
-      for (const rank of ranks) {
+    for (const f of boardFiles(s))
+      for (const rank of boardRanks(s)) {
         const to = f + rank
         if (to === from || s.b[to]?.c === c) continue
         if (power === 'exchange' && s.b[to]) {
@@ -313,31 +341,29 @@ export function sandboxReply(s, catalog, level, cat) {
             dx = Math.abs(x - a),
             dy = Math.abs(y - b)
           if (Math.max(dx, dy) === 2 && [0, 2].includes(dx) && [0, 2].includes(dy)) {
-            const mid = s.b[at((x + a) / 2, (y + b) / 2)]
+            const mid = s.b[at((x + a) / 2, (y + b) / 2,boardSize(s))]
             consider(
               { from, to, power },
               price(s.b[to]) * 1.4 + (mid?.c === other(c) ? price(mid) * 1.6 : 0),
             )
           }
         }
-        if (!movement(s.b, from, to)) continue
+        if (!movement(s.b, from, to,boardSize(s))) continue
         const [x, y] = xy(to),
           b = { ...s.b, [to]: p }
         delete b[from]
         let score = price(s.b[to]) * 1.5 + (7 - Math.abs(x - 3.5) - Math.abs(y - 3.5)) * 0.12
-        if (enemy.some((sq) => sq !== to && movement(b, sq, to))) score -= price(p) * 0.68
-        if (p.t === 'p' && rank === (c === 'w' ? 8 : 1)) score += 8
+        if (enemy.some((sq) => sq !== to && movement(b, sq, to,boardSize(s)))) score -= price(p) * 0.68
+        if (p.t === 'p' && rank === (c === 'w' ? boardSize(s) : 1)) score += 8
         consider(
-          { from, to, promotion: p.t === 'p' && rank === (c === 'w' ? 8 : 1) ? 'q' : undefined },
+          { from, to, promotion: p.t === 'p' && rank === (c === 'w' ? boardSize(s) : 1) ? 'q' : undefined },
           score,
         )
       }
   }
   if (best) return best
   if (!own.length) return null
-  const to = files
-    .split('')
-    .flatMap((f) => ranks.map((r) => f + r))
+  const to = allSquares(s)
     .find((sq) => s.b[sq]?.c !== c)
   return to ? { from: own[0], to } : null
 }
