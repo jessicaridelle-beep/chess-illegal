@@ -15,7 +15,7 @@ import {
   destinations,
   threatenedKings,
   convertPiece,
-  boardSize, boardFiles, boardRanks, allSquares, expandBoard, blackHole, xy, applyBotAction,
+  boardSize, boardFiles, boardRanks, allSquares, expandBoard, blackHole, xy, legalBotTrial, sandboxNoMove,
 } from './game.mjs'
 import { stockfishMove, compareMove } from './engine.mjs'
 import { grades, reviewMove, engineGrade } from './review.mjs'
@@ -238,7 +238,7 @@ function showResult() {
   const detail =
     result.reason === 'Last king taken'
       ? colorName(other(result.winner)) + ' lost its final king.'
-      : result.reason === 'Checkmate'
+      : ['Checkmate','Sandbox checkmate'].includes(result.reason)
         ? colorName(other(result.winner)) + ' has no legal escape from check.'
         : result.reason === 'Both kings lost' ? 'Both sides lost their last king.' : result.reason === 'Resignation' ? 'You resigned the game.' : 'The side to move has no legal move and is outside check.'
   dialog(
@@ -695,13 +695,18 @@ async function botMove(token) {
   } else {
     action = sandboxReply(game,catalog(),prefs.level,profile()[1],{powers:prefs.botPowers,followup,allowDouble:true,history:undoStack})
     if (prefs.bot === 'fish') by = 'Nexus · fallback'
-    if (!action) pass = 'Pass · no pieces available to move'
+    if (!action) {
+      game.result=sandboxNoMove(game,catalog(),c)
+      pass=game.result?.reason||'Pass · no safe moves available'
+    }
   }
   if (epoch !== token) return
   let extra=false
   if(action){
     const before={...game,b:{...game.b}}, {from,to,promotion,power}=action, p=game.b[from], q=game.b[to]
-    if(applyBotAction(game,action,c)){
+    const safe=legalBotTrial(game,action,c,catalog())
+    if(safe){
+      Object.assign(game,safe)
       extra=!!action.double&&!followup
       if(globalPowers.has(power)||extra)game.botCooldown=3
       else if(!followup&&game.botCooldown>0)game.botCooldown--
@@ -897,7 +902,7 @@ function showHelp() {
     ['Board effects','Red highlights identify attacked kings. Right-click a square to mark it, or right-drag to draw an arrow. Customize board colors and animations in settings.'],
     [
       'Bot turns',
-      'Stockfish plays conventional positions and switches to Nexus on nonstandard boards. Nexus adapts, Aegis protects its king, Bytecat prefers chaotic powers and Architect expands or builds. Bots simulate custom abilities and may use global powers if enabled, with a cooldown. Direct global removal or conversion of kings is disabled for fair play.',
+      'Stockfish plays conventional positions and switches to Nexus on nonstandard boards. All bots must resolve checks and cannot move their kings into danger, including custom-piece attack zones. Sandbox powers still follow their own rules. Nexus adapts, Aegis defends, Bytecat prefers chaos and Architect builds. Global bot powers have a cooldown; direct global king removal or conversion is disabled.'
     ],
   ]
   dialog(
