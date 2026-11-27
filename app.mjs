@@ -13,6 +13,7 @@ import {
   sandboxReply,
   matchOutcome,
   destinations,
+  threatenedKings,
 } from './game.mjs'
 import { stockfishMove, compareMove } from './engine.mjs'
 import { grades, reviewMove, engineGrade } from './review.mjs'
@@ -34,6 +35,8 @@ let prefs = {
   auto: true,
   coords: true,
   sound: false,
+  effects: true,
+  theme: 'green',
   ...saved.prefs,
 }
 let mode = 'move',
@@ -47,6 +50,7 @@ let mode = 'move',
   timer = null,
   dialogPage = '',
   storageIssue = false
+let lastAnimated = game.logs.at(-1)?.id, annotations = [], arrowStart = null
 const catalog = () => [...originals, ...custom]
 const label = (t) => names[t] || catalog().find((x) => x.id === t)?.name || 'Custom piece'
 const botTitle = () => (prefs.bot === 'cat' ? 'Bytecat' : 'Stockfish')
@@ -83,6 +87,7 @@ function resetSelection() {
   notice = ''
 }
 function checkpoint() {
+  annotations = []
   cancelBot()
   undoStack.push(clone(game))
   if (undoStack.length > 60) undoStack.shift()
@@ -125,7 +130,7 @@ function recordPly(before, action, actor, nextSide, text, by) {
   game.result = matchOutcome(before, game, nextSide)
   const entry = log(text, by)
   const assessment = reviewMove(before, game, action, actor, game.result)
-  Object.assign(entry, assessment, { id: crypto.randomUUID(), sq: action.to || action.from })
+  Object.assign(entry, assessment, { id: crypto.randomUUID(), sq: action.to || action.from, fx: { from: action.from, to: action.to, power: action.power, capture: !!before.b[action.to], promotion: !!action.promotion } })
   if (assessment.search) reviewQueue()
 }
 
@@ -194,7 +199,7 @@ function showResult() {
       ? colorName(other(result.winner)) + ' lost its final king.'
       : result.reason === 'Checkmate'
         ? colorName(other(result.winner)) + ' has no legal escape from check.'
-        : 'The side to move has no legal move and is outside check.'
+        : result.reason === 'Resignation' ? 'You resigned the game.' : 'The side to move has no legal move and is outside check.'
   dialog(
     'Game result',
     '<div class="finish-card ' +
@@ -227,7 +232,10 @@ function chime(bot = false) {
       g = a.createGain()
     o.connect(g)
     g.connect(a.destination)
-    o.frequency.value = bot ? 270 : 385
+    const fx = game.logs.at(-1)?.fx
+    const checked = threatenedKings(game,catalog()).length
+    o.frequency.value = checked ? 620 : fx?.power ? 510 : fx?.capture ? 180 : bot ? 270 : 385
+    o.frequency.exponentialRampToValueAtTime(o.frequency.value * (fx?.power ? 1.65 : 0.8), a.currentTime + 0.085)
     g.gain.setValueAtTime(0.045, a.currentTime)
     g.gain.exponentialRampToValueAtTime(0.001, a.currentTime + 0.09)
     o.start()
@@ -341,8 +349,12 @@ function activatePower(from, to, kind) {
   const trial = clone(game)
   if (!usePower(trial, from, to, kind)) {
     notice =
-      kind === 'radiance'
-        ? 'Radiance needs an enemy on a touching square.'
+      ['radiance','nova'].includes(kind)
+        ? abilities[kind] + ' needs an adjacent enemy.'
+        : kind === 'echo'
+          ? 'Choose an empty neighboring square away from the back ranks.'
+          : kind === 'beam'
+            ? 'Choose an enemy within four unobstructed straight squares.'
         : kind === 'exchange'
           ? 'Choose another occupied square.'
           : 'Choose a square exactly two steps along a line.'
@@ -366,6 +378,11 @@ function activatePower(from, to, kind) {
 function renderBoard() {
   const order = game.view === 'w' ? [...files] : [...files].reverse(),
     rows = game.view === 'w' ? ranks : [...ranks].reverse()
+  const checked = new Set(threatenedKings(game,catalog()))
+  const entry = game.logs.at(-1)
+  const animate = prefs.effects && entry?.fx && entry.id !== lastAnimated
+  lastAnimated = entry?.id
+  board.dataset.theme = prefs.theme
   let html = ''
   for (const [ri, r] of rows.entries())
     for (const [fi, f] of order.entries()) {
@@ -377,7 +394,10 @@ function renderBoard() {
         '<button class="square ' +
         (dark ? 'dark ' : '') +
         (selected === sq ? 'selected ' : '') +
-        (game.last.includes(sq) ? 'last' : '') +
+        (game.last.includes(sq) ? 'last ' : '') +
+        (checked.has(sq) ? 'king-check ' : '') +
+        (animate && entry.fx.power && game.last.includes(sq) ? 'power-flash fx-' + entry.fx.power + ' ' : '') +
+        (animate && !entry.fx.power && entry.fx.to === sq ? 'piece-arrival ' + (entry.fx.capture ? 'capture-flash ' : '') + (entry.fx.promotion ? 'promotion-flash ' : '') : '') +
         '" aria-label="' +
         esc(title) +
         '" aria-pressed="' +
@@ -395,12 +415,36 @@ function renderBoard() {
   board.innerHTML = html
   board.dataset.mode = mode
   paintDestinations()
+  if (animate && !entry.fx.power && entry.fx.to && entry.fx.from) {
+    const target = board.querySelector('[data-sq="'+entry.fx.to+'"]')
+    const sign = game.view === 'w' ? 1 : -1
+    const dx = (files.indexOf(entry.fx.from[0])-files.indexOf(entry.fx.to[0]))*sign
+    const dy = (Number(entry.fx.to[1])-Number(entry.fx.from[1]))*sign
+    target?.style.setProperty('--move-x', (dx*120)+'%')
+    target?.style.setProperty('--move-y', (dy*120)+'%')
+  }
+  paintAnnotations()
+}
+function paintAnnotations() {
+  board.querySelector('.annotations')?.remove()
+  if (!annotations.length) return
+  const xy = sq => {
+    const x = files.indexOf(sq[0]), y = 8-Number(sq[1])
+    return game.view === 'w' ? [x*100+50,y*100+50] : [(7-x)*100+50,(7-y)*100+50]
+  }
+  const lines = annotations.map(([a,b]) => {
+    const [x,y]=xy(a), [u,v]=xy(b)
+    if(a===b) return '<circle cx="'+x+'" cy="'+y+'" r="41" fill="none" stroke="#f59e0b" stroke-width="9"/>'
+    return '<line x1="'+x+'" y1="'+y+'" x2="'+u+'" y2="'+v+'" stroke="#f59e0b" stroke-width="13" stroke-linecap="round" marker-end="url(#arrowhead)"/>'
+  }).join('')
+  board.insertAdjacentHTML('beforeend','<svg class="annotations" aria-hidden="true" viewBox="0 0 800 800"><defs><marker id="arrowhead" markerWidth="4" markerHeight="4" refX="3" refY="2" orient="auto"><path d="M0 0L4 2L0 4Z" fill="#f59e0b"/></marker></defs>'+lines+'</svg>')
 }
 function paintDestinations() {
   const targets = new Set(
     selected && mode === 'move' && !game.result ? destinations(game, selected, powerTarget) : [],
   )
   for (const square of board.children) {
+    if (!square.dataset.sq) continue
     const sq = square.dataset.sq,
       piece = game.b[sq],
       target = targets.has(sq)
@@ -413,7 +457,7 @@ function paintDestinations() {
       sq +
         ' · ' +
         (piece ? colorName(piece.c) + ' ' + label(piece.t) : 'empty') +
-        (target ? ' · suggested target' : ''),
+        (target ? ' · suggested target' : '') + (square.classList.contains('king-check') ? ' · king under attack' : ''),
     )
   }
 }
@@ -437,7 +481,11 @@ function renderStatus() {
     '<span>' +
     esc(storageIssue ? 'Device storage is full. This game is playing in memory.' : hint) +
     '</span>'
-  $('turn').textContent = game.result ? resultTitle() : game.pending ? 'Bot thinking…' : 'Your turn'
+  const checked = threatenedKings(game,catalog())
+  const ownCheck = checked.some(sq=>game.b[sq].c===game.side)
+  const enemyCheck = checked.some(sq=>game.b[sq].c!==game.side)
+  $('turn').textContent = game.result ? resultTitle() : game.pending ? 'Bot thinking…' : ownCheck ? 'Your king in check!' : enemyCheck ? 'Enemy king in check!' : 'Your turn'
+  $('turn').parentElement.classList.toggle('check-turn', !!checked.length && !game.result)
   $('match-result').hidden = !game.result
   if (game.result) $('result-summary').textContent = resultTitle() + ' · ' + game.result.reason
   $('bot-name').textContent = botTitle()
@@ -492,7 +540,7 @@ function render() {
         '</small></span></button>',
     )
     .join('')
-  $('tray').innerHTML = classicOrder
+  $('tray').innerHTML = [...classicOrder, ...catalog().map(item=>item.id)]
     .map(
       (t) =>
         '<button data-spawn="' +
@@ -603,6 +651,7 @@ function restore(direction) {
     destination = back ? redoStack : undoStack
   if (!source.length) return
   cancelBot()
+  annotations = []
   destination.push(clone(game))
   game = source.pop()
   spawnColor = game.side
@@ -752,6 +801,7 @@ function showHelp() {
       'Custom abilities',
       'Select a custom piece and use its ability under the board. Promote a pawn on its far rank, or use Transform piece to change any piece at any time.',
     ],
+    ['Board effects','Red highlights identify attacked kings. Right-click a square to mark it, or right-drag to draw an arrow. Customize board colors and animations in settings.'],
     [
       'Bot turns',
       'Stockfish plays conventional positions. The sandbox engine handles custom pieces, missing kings, and other unusual positions. Change the bot or request a move in settings.',
@@ -807,6 +857,7 @@ function settings() {
         ['auto', 'Automatic bot replies'],
         ['coords', 'Board coordinates'],
         ['sound', 'Move sounds'],
+        ['effects', 'Animated moves and powers'],
       ]
         .map(
           ([k, t]) =>
@@ -819,13 +870,14 @@ function settings() {
             '</label>',
         )
         .join('') +
-      '<div class="dialog-actions"><button class="secondary" id="bot-now">Bot move now</button><button class="primary" id="apply">Save settings</button></div>',
+      '<label class="form-field">Board theme<select id="theme">' + selectOptions([['green','Classic green'],['wood','Warm wood'],['blue','Midnight blue'],['mono','Monochrome']],prefs.theme) + '</select></label><div class="dialog-actions"><button class="secondary" id="bot-now">Bot move now</button><button class="primary" id="apply">Save settings</button></div><div class="dialog-actions"><button class="secondary" id="clear-marks">Clear arrows</button><button class="secondary" id="resign">Resign game</button></div>',
     'settings',
   )
   function apply() {
     cancelBot()
     readBotFields()
-    for (const k of ['auto', 'coords', 'sound']) prefs[k] = $('pref-' + k).checked
+    for (const k of ['auto', 'coords', 'sound', 'effects']) prefs[k] = $('pref-' + k).checked
+    prefs.theme = $('theme').value
     game.pending = game.pending && prefs.auto
     save()
     modal.close()
@@ -834,6 +886,16 @@ function settings() {
   $('apply').onclick = () => {
     apply()
     if (game.pending) scheduleBot()
+  }
+  $('clear-marks').onclick = () => {annotations=[];paintAnnotations();modal.close()}
+  $('resign').disabled = Boolean(game.result)
+  $('resign').onclick = () => {
+    if(game.result || !confirm('Resign this sandbox game?')) return
+    checkpoint()
+    game.result = {winner: other(game.side),reason:'Resignation'}
+    log('Resigned')
+    modal.close()
+    endAction()
   }
   $('bot-now').disabled = Boolean(game.result)
   $('bot-now').onclick = () => {
@@ -977,7 +1039,22 @@ function forge() {
     }
   }
 }
+board.oncontextmenu = e => e.preventDefault()
+board.addEventListener('pointerdown', e => {
+  if(e.button===2) arrowStart=e.target.closest('[data-sq]')?.dataset.sq || null
+})
+window.addEventListener('pointerup', e => {
+  if(e.button!==2 || !arrowStart) return
+  const from=arrowStart, to=e.target.closest?.('[data-sq]')?.dataset.sq
+  arrowStart=null
+  if(!to || !board.contains(e.target)) return
+  const existing=annotations.findIndex(([a,b])=>a===from&&b===to)
+  if(existing>=0) annotations.splice(existing,1)
+  else annotations.push([from,to])
+  paintAnnotations()
+})
 board.onclick = (e) => {
+  if(annotations.length){annotations=[];paintAnnotations()}
   const b = e.target.closest('[data-sq]')
   if (b) actOn(b.dataset.sq)
 }
@@ -1028,7 +1105,7 @@ $('power-area').onclick = (e) => {
     return
   }
   const kind = catalog().find((item) => item.id === p.t)?.power
-  if (kind === 'radiance') activatePower(selected, null, kind)
+  if (['radiance','nova'].includes(kind)) activatePower(selected, null, kind)
   else {
     powerTarget = kind
     notice = ''
