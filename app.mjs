@@ -11,8 +11,11 @@ import {
   edit,
   usePower,
   sandboxReply,
+  matchOutcome,
+  destinations,
 } from './game.mjs'
-import { stockfishMove } from './engine.mjs'
+import { stockfishMove, compareMove } from './engine.mjs'
+import { grades, reviewMove, engineGrade } from './review.mjs'
 const $ = (id) => document.getElementById(id),
   modal = $('modal'),
   board = $('board')
@@ -87,9 +90,134 @@ function checkpoint() {
   game.pending = false
 }
 function log(text, by = 'You') {
-  game.logs.push({ text, by })
+  const entry = { text, by }
+  game.logs.push(entry)
   if (game.logs.length > 300) game.logs.shift()
+  return entry
 }
+let activeReview = null
+async function reviewQueue() {
+  if (activeReview) return
+  const next = game.logs.find((entry) => entry.search)
+  if (!next) return
+  const { id, search } = next
+  activeReview = compareMove(search.fen, search.played)
+  try {
+    const answer = await activeReview.result
+    const finalGrade = answer ? engineGrade(search, answer) : next.grade
+    for (const snapshot of [game, ...undoStack, ...redoStack]) {
+      const entry = snapshot.logs.find((item) => item.id === id)
+      if (entry) {
+        entry.grade = finalGrade
+        delete entry.search
+      }
+    }
+    save()
+    paintReview()
+    if (modal.open && dialogPage === 'history') showHistory()
+  } finally {
+    activeReview = null
+    if (game.logs.some((item) => item.search)) queueMicrotask(reviewQueue)
+  }
+}
+
+function recordPly(before, action, actor, nextSide, text, by) {
+  game.result = matchOutcome(before, game, nextSide)
+  const entry = log(text, by)
+  const assessment = reviewMove(before, game, action, actor, game.result)
+  Object.assign(entry, assessment, { id: crypto.randomUUID(), sq: action.to || action.from })
+  if (assessment.search) reviewQueue()
+}
+
+function gradeChip(entry) {
+  if (!entry?.grade) return ''
+  if (entry.search) return '<span class="grade-chip grade-pending">Reviewing…</span>'
+  const [title, mark] = grades[entry.grade.key]
+  return (
+    '<span class="grade-chip grade-' + entry.grade.key + '"><i>' + mark + '</i>' + title + '</span>'
+  )
+}
+
+function paintReview() {
+  const last = [...game.logs].reverse().find((item) => item.grade && item.by === 'You')
+  const box = $('move-review')
+  box.hidden = !last
+  if (last) {
+    box.innerHTML =
+      gradeChip(last) +
+      '<div><strong>' +
+      esc(last.text) +
+      '</strong><p>' +
+      esc(
+        last.search ? 'Stockfish is comparing your move with its best line.' : last.grade.detail,
+      ) +
+      '</p></div><small>' +
+      esc(last.search ? '' : last.grade.source) +
+      '</small>'
+  }
+  board.querySelectorAll('.grade-pin').forEach((pin) => pin.remove())
+  // Preserve the player’s marker through the bot reply, unless that reply changed the square.
+  const recent = game.logs.slice(-2)
+  const marked =
+    recent.at(-1)?.by === 'You'
+      ? recent.at(-1)
+      : recent.at(-1)?.grade && !game.last.includes(recent[0]?.sq)
+        ? recent[0]
+        : null
+  if (!marked?.grade || marked.search || marked.by !== 'You' || !game.b[marked.sq]) return
+  const square = board.querySelector('[data-sq="' + marked.sq + '"]')
+  const [title, mark] = grades[marked.grade.key]
+  if (square)
+    square.insertAdjacentHTML(
+      'beforeend',
+      '<span aria-hidden="true" class="grade-pin grade-' +
+        marked.grade.key +
+        '" title="' +
+        title +
+        '">' +
+        mark +
+        '</span>',
+    )
+}
+
+function resultTitle() {
+  if (!game.result.winner) return 'Draw'
+  return game.result.winner === game.side ? 'You win!' : 'Bot wins'
+}
+function showResult() {
+  if (!game.result) return
+  const result = game.result,
+    won = result.winner === game.side
+  const last = game.logs.at(-1)
+  const detail =
+    result.reason === 'Last king taken'
+      ? colorName(other(result.winner)) + ' lost its final king.'
+      : result.reason === 'Checkmate'
+        ? colorName(other(result.winner)) + ' has no legal escape from check.'
+        : 'The side to move has no legal move and is outside check.'
+  dialog(
+    'Game result',
+    '<div class="finish-card ' +
+      (won ? 'victory' : '') +
+      '"><span class="finish-icon" aria-hidden="true">' +
+      (result.winner ? '♛' : '½') +
+      '</span><h3>' +
+      resultTitle() +
+      '</h3><strong>' +
+      result.reason +
+      '</strong><p>' +
+      detail +
+      '</p>' +
+      (last ? '<small>' + esc(last.text) + '</small>' : '') +
+      '</div><div class="dialog-actions"><button class="secondary" id="view-board">View board</button><button class="primary" id="rematch">New game ' +
+      icon('arrow', 16) +
+      '</button></div>',
+    'result',
+  )
+  $('rematch').onclick = newGame
+  $('view-board').onclick = () => modal.close()
+}
+
 function chime(bot = false) {
   if (!prefs.sound) return
   try {
@@ -108,18 +236,23 @@ function chime(bot = false) {
 }
 function endAction(reply = false) {
   resetSelection()
-  game.pending = Boolean(reply && prefs.auto)
+  game.pending = Boolean(reply && prefs.auto && !game.result)
   save()
   render()
   chime()
-  if (game.pending) scheduleBot()
+  if (game.result) showResult()
+  else if (game.pending) scheduleBot()
 }
 function travel(from, to, promotion) {
   const p = game.b[from],
     q = game.b[to]
   checkpoint()
   move(game, from, to, promotion)
-  log(
+  recordPly(
+    undoStack.at(-1),
+    { from, to, promotion },
+    game.side,
+    other(game.side),
     label(p.t) +
       ' ' +
       from +
@@ -131,6 +264,7 @@ function travel(from, to, promotion) {
   endAction(true)
 }
 function selectMode(value) {
+  if (game.result) return showResult()
   if (value === 'flip') {
     checkpoint()
     game.side = other(game.side)
@@ -146,11 +280,13 @@ function selectMode(value) {
   render()
 }
 function chooseSpawn(t) {
+  if (game.result) return showResult()
   spawnType = t
   selectMode('spawn')
   if (modal.open) modal.close()
 }
 function actOn(sq) {
+  if (game.result) return showResult()
   if (powerTarget) {
     activatePower(selected, sq, powerTarget)
     return
@@ -218,7 +354,13 @@ function activatePower(from, to, kind) {
   game.rights = trial.rights
   game.ep = trial.ep
   game.last = trial.last
-  log(abilities[kind] + ' · ' + from + (to ? ' → ' + to : ''))
+  recordPly(
+    undoStack.at(-1),
+    { from, to, power: kind },
+    game.side,
+    other(game.side),
+    abilities[kind] + ' · ' + from + (to ? ' → ' + to : ''),
+  )
   endAction(true)
 }
 function renderBoard() {
@@ -243,7 +385,7 @@ function renderBoard() {
         '" data-sq="' +
         sq +
         '" draggable="' +
-        Boolean(p && mode === 'move') +
+        Boolean(p && mode === 'move' && !game.result) +
         '">' +
         (prefs.coords && fi === 0 ? '<span class="coord rank">' + r + '</span>' : '') +
         (p ? pieceArt(p.t, p.c, catalog()) : '') +
@@ -252,10 +394,34 @@ function renderBoard() {
     }
   board.innerHTML = html
   board.dataset.mode = mode
+  paintDestinations()
 }
+function paintDestinations() {
+  const targets = new Set(
+    selected && mode === 'move' && !game.result ? destinations(game, selected, powerTarget) : [],
+  )
+  for (const square of board.children) {
+    const sq = square.dataset.sq,
+      piece = game.b[sq],
+      target = targets.has(sq)
+    square.classList.toggle('selected', sq === selected)
+    square.setAttribute('aria-pressed', String(sq === selected))
+    square.classList.toggle('move-dot', target && !piece)
+    square.classList.toggle('capture-ring', target && !!piece)
+    square.setAttribute(
+      'aria-label',
+      sq +
+        ' · ' +
+        (piece ? colorName(piece.c) + ' ' + label(piece.t) : 'empty') +
+        (target ? ' · suggested target' : ''),
+    )
+  }
+}
+
 function renderStatus() {
   const selectedPiece = game.b[selected]
   const hint =
+    (game.result ? game.result.reason + ' · Undo to keep playing.' : '') ||
     notice ||
     (powerTarget
       ? 'Choose a target for ' + abilities[powerTarget] + '.'
@@ -264,14 +430,16 @@ function renderStatus() {
         : mode === 'spawn'
           ? 'Tap a square to spawn ' + label(spawnType) + '.'
           : selectedPiece
-            ? label(selectedPiece.t) + ' on ' + selected + ' · choose any square.'
-            : 'Select a piece to move it anywhere.')
+            ? label(selectedPiece.t) + ' on ' + selected + '. Follow a marker or tap any square.'
+            : 'Select a piece to see its moves.')
   $('hint').innerHTML =
     icon(mode === 'move' ? 'move' : mode, 15) +
     '<span>' +
     esc(storageIssue ? 'Device storage is full. This game is playing in memory.' : hint) +
     '</span>'
-  $('turn').textContent = game.pending ? 'Bot thinking…' : 'Your turn'
+  $('turn').textContent = game.result ? resultTitle() : game.pending ? 'Bot thinking…' : 'Your turn'
+  $('match-result').hidden = !game.result
+  if (game.result) $('result-summary').textContent = resultTitle() + ' · ' + game.result.reason
   $('bot-name').textContent = botTitle()
   $('bot-avatar').src = prefs.bot === 'cat' ? 'art/cat.svg' : 'art/bot.svg'
   const compatible = prefs.bot === 'fish' && orthodox(game, other(game.side))
@@ -305,6 +473,7 @@ function renderStatus() {
 function render() {
   renderBoard()
   renderStatus()
+  paintReview()
   $('tool-grid').innerHTML = toolInfo
     .map(
       ([key, name, desc]) =>
@@ -347,7 +516,7 @@ function render() {
   })
 }
 async function botMove(token) {
-  if (epoch !== token || !game.pending) return
+  if (epoch !== token || !game.pending || game.result) return
   const c = other(game.side),
     ch = prefs.bot === 'fish' ? orthodox(game, c) : null
   let action = null,
@@ -355,11 +524,10 @@ async function botMove(token) {
     pass = ''
   if (ch) {
     const moves = ch.moves({ verbose: true })
-    if (!moves.length)
-      pass = ch.isCheckmate()
-        ? 'Checkmate · edit the board to continue'
-        : 'Stalemate · edit the board to continue'
-    else {
+    if (!moves.length) {
+      game.result = matchOutcome(game, game, c)
+      pass = game.result?.reason || 'No legal move'
+    } else {
       engine = stockfishMove(ch.fen(), prefs.level, moves)
       action = await engine.result
       if (epoch !== token) return
@@ -376,15 +544,27 @@ async function botMove(token) {
   }
   if (epoch !== token) return
   if (action) {
+    const before = { ...game, b: { ...game.b } }
     const { from, to, promotion, power } = action,
       p = game.b[from],
       q = game.b[to]
     if (power) {
       usePower(game, from, to, power)
-      log(abilities[power] + ' · ' + from + (to ? ' → ' + to : ''), by)
+      recordPly(
+        before,
+        action,
+        c,
+        game.side,
+        abilities[power] + ' · ' + from + (to ? ' → ' + to : ''),
+        by,
+      )
     } else {
       move(game, from, to, promotion)
-      log(
+      recordPly(
+        before,
+        action,
+        c,
+        game.side,
         label(p.t) +
           ' ' +
           from +
@@ -401,7 +581,8 @@ async function botMove(token) {
   save()
   render()
   chime(true)
-  if (dialogPage === 'history' && modal.open) showHistory()
+  if (game.result) showResult()
+  else if (dialogPage === 'history' && modal.open) showHistory()
 }
 function scheduleBot() {
   cancelBot()
@@ -428,7 +609,8 @@ function restore(direction) {
   resetSelection()
   save()
   render()
-  if (game.pending) scheduleBot()
+  if (game.pending && !game.result) scheduleBot()
+  reviewQueue()
 }
 function dialog(title, body, page) {
   dialogPage = page
@@ -505,30 +687,58 @@ function showLibrary() {
   $('forge').onclick = forge
 }
 function showHistory() {
-  const html = game.logs.length
-    ? '<ol class="logs">' +
-      game.logs
-        .map(
-          (v, i) =>
-            '<li><small>' +
-            String(i + 1).padStart(2, '0') +
-            '</small><span>' +
-            esc(v.text) +
-            '</span><b>' +
-            esc(v.by) +
-            '</b></li>',
-        )
-        .reverse()
-        .join('') +
-      '</ol>'
-    : '<p class="dialog-copy">The starting position is ready. Your first move or board edit will appear here.</p>'
-  dialog('Move history', html, 'history')
+  const expanded = new Set(
+    [...modal.querySelectorAll('details[open]')].map((el) => el.dataset.entry),
+  )
+  const rows = game.logs.map((entry, index) => {
+    const number = String(index + 1).padStart(2, '0')
+    const line =
+      '<small>' +
+      number +
+      '</small><span>' +
+      esc(entry.text) +
+      '</span>' +
+      gradeChip(entry) +
+      '<b>' +
+      esc(entry.by) +
+      '</b>'
+    if (!entry.grade) return '<li>' + line + '</li>'
+    const detail = entry.search
+      ? 'Stockfish is analyzing this position.'
+      : entry.grade.detail + ' · ' + entry.grade.source
+    return (
+      '<li><details data-entry="' +
+      esc(entry.id) +
+      '" ' +
+      (expanded.has(entry.id) ? 'open' : '') +
+      '><summary>' +
+      line +
+      '</summary><p>' +
+      esc(detail) +
+      '</p></details></li>'
+    )
+  })
+  dialog(
+    'Move history',
+    rows.length
+      ? '<ol class="logs">' + rows.reverse().join('') + '</ol>'
+      : '<p class="dialog-copy">Your first move or board edit will appear here.</p>',
+    'history',
+  )
 }
 function showHelp() {
   const items = [
     [
+      'How to win',
+      'Checkmate the other side on a standard board, or take its last king with a move or power. If your own last king falls, the bot wins. Spawning, deleting and transforming pieces are setup edits.',
+    ],
+    [
+      'Move review',
+      'Stockfish compares ordinary moves with its best line. A brilliant move offers material while keeping a strong evaluation. Freeform moves and powers get a sandbox estimate based on material and immediate threats. A safe new double attack on major pieces can earn Brilliant in the sandbox. Open Move history for both sides’ grades.',
+    ],
+    [
       'Move anywhere',
-      'Tap or drag a piece of either color to any square. Landing on an occupied square captures its piece, even your own.',
+      'Tap a piece to show its usual destinations. Dots mark open squares and rings mark occupied targets. Tap or drag to any square, including unmarked ones. Landing on an occupied square captures its piece, even your own.',
     ],
     [
       'Spawn and delete',
@@ -625,7 +835,9 @@ function settings() {
     apply()
     if (game.pending) scheduleBot()
   }
+  $('bot-now').disabled = Boolean(game.result)
   $('bot-now').onclick = () => {
+    if (game.result) return showResult()
     apply()
     checkpoint()
     game.pending = true
@@ -771,10 +983,15 @@ board.onclick = (e) => {
 }
 board.ondragstart = (e) => {
   const b = e.target.closest('[data-sq]')
-  if (!b || mode !== 'move' || !game.b[b.dataset.sq]) {
+  if (game.result || !b || mode !== 'move' || !game.b[b.dataset.sq]) {
     e.preventDefault()
     return
   }
+  selected = b.dataset.sq
+  powerTarget = null
+  notice = ''
+  paintDestinations()
+  renderStatus()
   e.dataTransfer.setData('text/plain', b.dataset.sq)
   e.dataTransfer.effectAllowed = 'move'
 }
@@ -815,6 +1032,7 @@ $('power-area').onclick = (e) => {
   else {
     powerTarget = kind
     notice = ''
+    paintDestinations()
     renderStatus()
   }
 }
@@ -847,6 +1065,7 @@ $('rotate').onclick = () => {
   render()
 }
 $('help').onclick = showHelp
+$('result-details').onclick = showResult
 $('settings').onclick = settings
 $('bot-config').onclick = settings
 $('new').onclick = newGame
@@ -886,4 +1105,5 @@ document.onkeydown = (e) => {
 }
 decorate()
 render()
-if (game.pending) scheduleBot()
+reviewQueue()
+if (game.pending && !game.result) scheduleBot()

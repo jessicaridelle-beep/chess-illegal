@@ -146,7 +146,7 @@ export function usePower(s, from, to, kind) {
 }
 const values = { p: 1, n: 3, b: 3.2, r: 5, q: 9, k: 14 }
 const price = (p) => (p ? values[p.t] || 6 : 0)
-function movement(b, from, to) {
+export function movement(b, from, to) {
   const p = b[from],
     [x, y] = xy(from),
     [tx, ty] = xy(to),
@@ -178,6 +178,41 @@ function movement(b, from, to) {
     sy = Math.sign(dy)
   for (let i = 1; i < Math.max(ax, ay); i++) if (b[at(x + sx * i, y + sy * i)]) return false
   return true
+}
+const squares = [...files].flatMap((file) => ranks.map((rank) => file + rank))
+
+// These are suggested destinations. Freeform moves are still accepted on every other square.
+export function destinations(state, from, power) {
+  const piece = state.b[from]
+  if (!piece) return []
+  if (power === 'exchange') return squares.filter((to) => to !== from && state.b[to])
+  if (power === 'leap') {
+    const [x, y] = xy(from)
+    return [-2, 0, 2]
+      .flatMap((dx) => [-2, 0, 2].filter((dy) => dx || dy).map((dy) => at(x + dx, y + dy)))
+      .filter(Boolean)
+  }
+  const chess = orthodox(state, piece.c)
+  if (chess)
+    return [...new Set(chess.moves({ square: from, verbose: true }).map((move) => move.to))]
+  return squares.filter((to) => movement(state.b, from, to))
+}
+
+export function matchOutcome(before, after, nextSide) {
+  const hasKing = (board, color) =>
+    Object.values(board).some((piece) => piece.t === 'k' && piece.c === color)
+  for (const color of ['w', 'b']) {
+    if (hasKing(before.b, color) && !hasKing(after.b, color)) {
+      return { winner: other(color), reason: 'Last king taken' }
+    }
+  }
+  const chess = orthodox(after, nextSide)
+  if (chess?.isCheckmate()) return { winner: other(nextSide), reason: 'Checkmate' }
+  // A player can move the opposite army and even checkmate their own king.
+  if (!chess && orthodox(after, other(nextSide))?.isCheckmate())
+    return { winner: nextSide, reason: 'Checkmate' }
+  if (chess?.isStalemate()) return { winner: null, reason: 'Stalemate' }
+  return null
 }
 export function sandboxReply(s, catalog, level, cat) {
   const c = other(s.side),

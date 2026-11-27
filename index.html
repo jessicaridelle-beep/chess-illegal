@@ -39,7 +39,7 @@
       <div class="title-row">
         <div>
           <h1>Sandbox <em>arena</em><span class="title-dot">.</span></h1>
-          <p>Freeform chess against the machine.</p>
+          <p>Checkmate the bot or capture its last king.</p>
         </div>
         <button class="primary" id="new"><i data-icon="plus"></i>New game</button>
       </div>
@@ -61,6 +61,10 @@
             >
               <i data-icon="sliders"></i>
             </button>
+          </div>
+          <div id="match-result" class="match-result" hidden>
+            <strong id="result-summary"></strong
+            ><button id="result-details" class="secondary">View result</button>
           </div>
           <div class="board-frame">
             <div class="board" id="board" role="group" aria-label="Chessboard"></div>
@@ -94,6 +98,7 @@
             </div>
           </div>
           <div id="power-area"></div>
+          <div id="move-review" class="move-review" aria-live="polite" hidden></div>
         </section>
         <aside class="deck" aria-label="Sandbox tools">
           <section class="panel tools-panel">
