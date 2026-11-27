@@ -16,7 +16,7 @@ import {
   threatenedKings,
   convertPiece,
   boardSize, boardFiles, boardRanks, allSquares, expandBoard, blackHole, xy, legalBotTrial, sandboxNoMove, clonePiece, toggleImmortality, freezeBot, toggleRealityLock, consumeBotFreeze, godTrial, godPower,
-} from './game.mjs'
+} from './game.mjs?v=ai-god-2'
 import { stockfishMove, compareMove } from './engine.mjs'
 import { grades, reviewMove, engineGrade } from './review.mjs'
 const $ = (id) => document.getElementById(id),
@@ -1254,6 +1254,8 @@ $('result-details').onclick = showResult
 $('settings').onclick = settings
 $('bot-config').onclick = settings
 $('new').onclick = newGame
+const godButton = $('play-ai-god')
+if (godButton) godButton.onclick = () => { newGame(); $('opponent').value = 'gpt' }
 $('dismiss').onclick = () => modal.close()
 modal.onclick = (e) => {
   if (e.target === modal) {
