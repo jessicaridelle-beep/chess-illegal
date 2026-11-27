@@ -253,7 +253,14 @@ export function threatenedKings(s, catalog = []) {
     const attacked = Object.entries(s.b).some(([from,q]) => {
       if (q.c === p.c) return false
       const power = catalog.find(k=>k.id===q.t)?.power
-      return movement(s.b,from,sq,boardSize(s)) || (['nova','radiance','beam'].includes(power) && powerTargets(s,from,power).includes(sq))
+      if(movement(s.b,from,sq,boardSize(s)))return true
+      if(['nova','radiance','beam'].includes(power)&&powerTargets(s,from,power).includes(sq))return true
+      if(power==='leap'){
+        const [x,y]=xy(from),[a,b]=xy(sq),dx=a-x,dy=b-y
+        // Starwalker's two-square jump converts a king on the midpoint.
+        return Math.max(Math.abs(dx),Math.abs(dy))===1&&!!at(x+2*dx,y+2*dy,boardSize(s))
+      }
+      return false
     })
     if (attacked) checked.push(sq)
   }
@@ -319,6 +326,36 @@ export function applyBotAction(s,a,color=other(s.side)) {
   if(!a.to)return false
   move(s,a.from,a.to,a.promotion);return true
 }
+// The same hard legality filter is applied before ranking AND before execution.
+// Sandbox players retain free moves; bots may not leave any of their kings in check.
+export function botKingSafe(before,after,color,catalog=[]){
+  const count=s=>Object.values(s.b).filter(p=>p.c===color&&p.t==='k').length
+  if(count(after)<count(before))return false
+  return !threatenedKings(after,catalog).some(sq=>after.b[sq]?.c===color)
+}
+export function legalBotTrial(s,a,c=other(s.side),catalog=[],standard=orthodox(s,c)){
+  if(!a)return null
+  if(!a.power){
+    if(s.b[a.from]?.c!==c||!allSquares(s).includes(a.to)||a.from===a.to)return null
+    if(standard){
+      const legal=standard.moves({square:a.from,verbose:true}).some(m=>m.to===a.to&&(!m.promotion||m.promotion===a.promotion))
+      if(!legal)return null
+    }else if(!movement(s.b,a.from,a.to,boardSize(s)))return null
+  }else if(!['hole','convert','delete','control','spawn','expand','rewind','double'].includes(a.power)){
+    if(s.b[a.from]?.c!==c||catalog.find(x=>x.id===s.b[a.from]?.t)?.power!==a.power)return null
+    if(!['radiance','nova'].includes(a.power)&&!destinations(s,a.from,a.power).includes(a.to))return null
+  }
+  const trial={...s,b:{...s.b},last:[]}
+  if(!applyBotAction(trial,a,c)||!botKingSafe(s,trial,c,catalog))return null
+  return trial
+}
+export function sandboxNoMove(s,catalog,color=other(s.side)){
+  const kings=Object.entries(s.b).filter(([,p])=>p.c===color&&p.t==='k')
+  if(!kings.length)return null
+  return threatenedKings(s,catalog).some(sq=>s.b[sq].c===color)
+    ?{winner:other(color),reason:'Sandbox checkmate'}
+    :{winner:null,reason:'Sandbox stalemate'}
+}
 const botValues={p:1,n:3,b:3.2,r:5,q:9,k:1000}
 const strategicValue=(p,catalog)=>p?(botValues[p.t]??({radiance:8,nova:8,beam:7,exchange:6,leap:6,echo:5}[catalog.find(x=>x.id===p.t)?.power]||6)):0
 function botPosition(s,c,catalog,profile){
@@ -332,11 +369,12 @@ function botPosition(s,c,catalog,profile){
   return score
 }
 function botCandidates(s,c,catalog){
-  const out=[],size=boardSize(s), squares=allSquares(s)
+  const out=[],size=boardSize(s), squares=allSquares(s), standard=orthodox(s,c)
+  if(standard)for(const m of standard.moves({verbose:true}))out.push({from:m.from,to:m.to,promotion:m.promotion})
   for(const [from,p] of Object.entries(s.b)){
     if(p.c!==c)continue
     for(const to of squares){
-      if(!movement(s.b,from,to,size))continue
+      if(standard||!movement(s.b,from,to,size))continue
       out.push({from,to,promotion:p.t==='p'&&Number(to.slice(1))===(c==='w'?size:1)?'q':undefined})
     }
     const power=catalog.find(k=>k.id===p.t)?.power
@@ -377,11 +415,11 @@ export function sandboxReply(s,catalog,level,profile='adaptive',options={}){
   }
   const base=botPosition(s,c,catalog,profile)
   const globals=new Set(['hole','convert','delete','control','spawn','expand','rewind'])
-  const ranked=[]
+  const ranked=[], standard=orthodox(s,c)
   // Evaluate the actual resulting board instead of inventing a score for each power.
   for(const a of actions){
-    const trial={...s,b:{...s.b},last:[]}
-    if(!applyBotAction(trial,a,c))continue
+    const trial=legalBotTrial(s,a,c,catalog,standard)
+    if(!trial)continue
     let score=botPosition(trial,c,catalog,profile)-base
     if(globals.has(a.power)){
       score-=a.power==='rewind'?5:a.power==='spawn'?5:4
@@ -390,7 +428,6 @@ export function sandboxReply(s,catalog,level,profile='adaptive',options={}){
       if(profile==='architect'&&a.power==='spawn')score+=2
       if(profile==='guardian'&&a.power==='rewind')score+=3
     }else if(a.power&&profile==='chaos')score+=1.2
-    if(!Object.values(trial.b).some(p=>p.c===c&&p.t==='k')&&own.some(([,p])=>p.t==='k'))score-=2000
     const noise=level==='relaxed'?3:level==='sharp'?.12:.65
     ranked.push({a,trial,score:score+Math.random()*noise})
   }
