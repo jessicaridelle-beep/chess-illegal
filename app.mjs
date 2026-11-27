@@ -36,6 +36,7 @@ let prefs = {
   coords: true,
   sound: false,
   effects: true,
+  cinematic: true,
   theme: 'green',
   ...saved.prefs,
 }
@@ -50,7 +51,7 @@ let mode = 'move',
   timer = null,
   dialogPage = '',
   storageIssue = false
-let lastAnimated = game.logs.at(-1)?.id, annotations = [], arrowStart = null
+let lastAnimated = game.logs.at(-1)?.id, annotations = [], arrowStart = null, revealed = new Set(game.logs.filter(x=>!x.search).map(x=>x.id))
 const catalog = () => [...originals, ...custom]
 const label = (t) => names[t] || catalog().find((x) => x.id === t)?.name || 'Custom piece'
 const botTitle = () => (prefs.bot === 'cat' ? 'Bytecat' : 'Stockfish')
@@ -106,10 +107,10 @@ async function reviewQueue() {
   const next = game.logs.find((entry) => entry.search)
   if (!next) return
   const { id, search } = next
-  activeReview = compareMove(search.fen, search.played)
+  activeReview = compareMove(search.fen, search.played, search.alternatives)
   try {
     const answer = await activeReview.result
-    const finalGrade = answer ? engineGrade(search, answer) : next.grade
+    const finalGrade = answer ? engineGrade(search, answer) : {key:'sandbox',detail:'Engine review unavailable. No verified rating.',source:'Unverified estimate'}
     for (const snapshot of [game, ...undoStack, ...redoStack]) {
       const entry = snapshot.logs.find((item) => item.id === id)
       if (entry) {
@@ -119,6 +120,7 @@ async function reviewQueue() {
     }
     save()
     paintReview()
+    revealGrade(game.logs.find(x=>x.id===id))
     if (modal.open && dialogPage === 'history') showHistory()
   } finally {
     activeReview = null
@@ -143,6 +145,31 @@ function gradeChip(entry) {
   )
 }
 
+function revealGrade(entry) {
+  if (!entry?.id || !entry.grade || entry.search || revealed.has(entry.id)) return
+  revealed.add(entry.id)
+  const k = entry.grade.key
+  if (!prefs.effects || !prefs.cinematic || !['brilliant','great','blunder','miss','winning'].includes(k)) return
+  const [title,mark] = grades[k]
+  board.querySelector('.grade-cinematic')?.remove()
+  const overlay = document.createElement('div')
+  overlay.className = 'grade-cinematic grade-' + k
+  overlay.innerHTML = '<div class="grade-hero"><span>'+mark+'</span><strong>'+title+'</strong></div>'
+  board.append(overlay)
+  setTimeout(()=>overlay.remove(),1400)
+  if (prefs.sound) {
+    try {
+      const a=chime.ctx||(chime.ctx=new AudioContext());a.resume().catch(()=>{})
+      const notes=k==='blunder'||k==='miss'?[220,140]:[440,660,880]
+      notes.forEach((hz,i)=>{
+        const o=a.createOscillator(),g=a.createGain(),t=a.currentTime+i*.09
+        o.type='triangle';o.frequency.value=hz;o.connect(g);g.connect(a.destination)
+        g.gain.setValueAtTime(.055,t);g.gain.exponentialRampToValueAtTime(.001,t+.2)
+        o.start(t);o.stop(t+.21)
+      })
+    } catch {}
+  }
+}
 function paintReview() {
   const last = [...game.logs].reverse().find((item) => item.grade && item.by === 'You')
   const box = $('move-review')
@@ -157,7 +184,7 @@ function paintReview() {
         last.search ? 'Stockfish is comparing your move with its best line.' : last.grade.detail,
       ) +
       '</p></div><small>' +
-      esc(last.search ? '' : last.grade.source) +
+      esc(last.search ? '' : last.grade.source + (Number.isFinite(last.grade.accuracy) ? ' · ' + last.grade.accuracy.toFixed(1) + '% expected-score retention' : '')) +
       '</small>'
   }
   board.querySelectorAll('.grade-pin').forEach((pin) => pin.remove())
@@ -522,6 +549,8 @@ function render() {
   renderBoard()
   renderStatus()
   paintReview()
+  const latest = game.logs.at(-1)
+  revealGrade(latest)
   $('tool-grid').innerHTML = toolInfo
     .map(
       ([key, name, desc]) =>
@@ -770,7 +799,7 @@ function showHistory() {
   dialog(
     'Move history',
     rows.length
-      ? '<ol class="logs">' + rows.reverse().join('') + '</ol>'
+      ? '<p class="dialog-copy">'+ (()=>{const verified=game.logs.filter(x=>x.by==='You'&&Number.isFinite(x.grade?.accuracy));return verified.length?'Average expected-score retention: '+(verified.reduce((n,x)=>n+x.grade.accuracy,0)/verified.length).toFixed(1)+'% · '+verified.length+' engine-reviewed moves':'No engine-reviewed moves yet.'})() + '</p><ol class="logs">' + rows.reverse().join('') + '</ol>'
       : '<p class="dialog-copy">Your first move or board edit will appear here.</p>',
     'history',
   )
@@ -783,7 +812,7 @@ function showHelp() {
     ],
     [
       'Move review',
-      'Stockfish compares ordinary moves with its best line. A brilliant move offers material while keeping a strong evaluation. Freeform moves and powers get a sandbox estimate based on material and immediate threats. A safe new double attack on major pieces can earn Brilliant in the sandbox. Open Move history for both sides’ grades.',
+      'Stockfish compares ordinary moves with its best line. A brilliant move offers material while keeping a strong evaluation. Freeform moves and powers get a sandbox estimate based on material and immediate threats. Sandbox estimates are labeled separately from verified engine grades. Brilliant requires an engine-supported sacrifice. Open Move history for both sides’ grades.',
     ],
     [
       'Move anywhere',
@@ -858,6 +887,7 @@ function settings() {
         ['coords', 'Board coordinates'],
         ['sound', 'Move sounds'],
         ['effects', 'Animated moves and powers'],
+        ['cinematic', 'Cinematic move rating reveals'],
       ]
         .map(
           ([k, t]) =>
@@ -876,7 +906,7 @@ function settings() {
   function apply() {
     cancelBot()
     readBotFields()
-    for (const k of ['auto', 'coords', 'sound', 'effects']) prefs[k] = $('pref-' + k).checked
+    for (const k of ['auto', 'coords', 'sound', 'effects', 'cinematic']) prefs[k] = $('pref-' + k).checked
     prefs.theme = $('theme').value
     game.pending = game.pending && prefs.auto
     save()
