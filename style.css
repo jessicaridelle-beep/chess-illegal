@@ -1419,3 +1419,21 @@ input[type='checkbox'] {
 @keyframes grade-vignette{0%{opacity:0}20%{opacity:.65}65%{opacity:.35}100%{opacity:0}}
 .grade-pin.grade-brilliant,.grade-pin.grade-great{box-shadow:0 0 10px var(--grade-bg)}
 @media(prefers-reduced-motion:reduce){.square .piece,.square::after,.grade-cinematic::before,.grade-cinematic .grade-hero{animation:none!important}.grade-cinematic{display:none}}
+
+/* Direct-control tools: enemy targeting, possession and permanent conversion. */
+.tool[data-tool="control"]>svg,.tool[data-tool="control"].active strong{color:#c6a2ff}
+.tool[data-tool="convert"]>svg,.tool[data-tool="convert"].active strong{color:#6ee6be}
+.tool[data-tool="control"].active{background:#39304a;border-color:#9672ca}
+.tool[data-tool="convert"].active{background:#244239;border-color:#61c7a6}
+.board[data-mode="control"] .square.control-target,.board[data-mode="convert"] .square.convert-target{cursor:crosshair}
+.square.control-target::before,.square.convert-target::before{content:'';position:absolute;inset:5%;border:3px solid #9255df;border-radius:12%;pointer-events:none;z-index:2;box-shadow:inset 0 0 10px #ac7bff66}
+.square.convert-target::before{border-color:#168f72;box-shadow:inset 0 0 12px #42e7b888}
+.square.possessed{background-color:#b9a2dd;box-shadow:inset 0 0 0 3px #7243b5}
+.square.possessed .piece{filter:drop-shadow(0 0 6px #8747e9)}
+.square.fx-control{--fx:#a16aff;--fxlight:#f3d9ff}
+.square.fx-control::after{background:conic-gradient(transparent,#a16aff,transparent,#e0bdff,transparent);animation:arena-phase 600ms ease-out both}
+.square.fx-convert{--fx:#2cdb9e;--fxlight:#d6ffed}
+.square.fx-convert::after{background:radial-gradient(circle,#edfff4 8%,#49edb9 22%,transparent 42%,#31e5ac 50%,transparent 65%);animation:arena-burst 850ms ease-out both}
+.quick-convert{color:#b0ffdf;border-color:#479c80;background:#25463a}
+#power-area .form-row{flex-wrap:wrap}
+@media(max-width:700px){.tool-grid{grid-template-columns:repeat(3,minmax(0,1fr))}}
