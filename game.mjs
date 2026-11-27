@@ -44,10 +44,10 @@ export function fresh() {
       b[files[x] + pawn] = { c, t: 'p' }
       b[files[x] + back] = { c, t: 'rnbqkbnr'[x] }
     }
-  return { b, size:8, doubleTurn:0, side: 'w', view: 'w', rights: 'KQkq', ep: '-', last: [], logs: [], pending: false }
+  return { b, size:8, doubleTurn:0, frozenTurns:0, realityLock:false, side: 'w', view: 'w', rights: 'KQkq', ep: '-', last: [], logs: [], pending: false }
 }
 export function fen(s, turn) {
-  if (boardSize(s)!==8) return null
+  if (boardSize(s)!==8 || Object.values(s.b).some(p=>p.immortal)) return null
   let rows = []
   for (const rank of ranks) {
     let row = '',
@@ -133,8 +133,27 @@ export function move(s, from, to, promotion) {
     if (normal.isBigPawn()) s.ep = from[0] + (Number(from[1]) + Number(to[1])) / 2
   }
   delete s.b[from]
-  s.b[to] = { c: p.c, t: promotion || p.t }
+  s.b[to] = { ...p, t: promotion || p.t }
   s.last = [from, to]
+}
+// Human-only, unlimited reality powers; no cooldowns or king exclusions.
+export function clonePiece(s,from,to){
+  if(!s.b[from]||from===to||!allSquares(s).includes(to))return false
+  edit(s,to,{...s.b[from]});s.last=[from,to];return true
+}
+export function toggleImmortality(s,sq){
+  if(!s.b[sq])return false
+  s.b[sq]={...s.b[sq],immortal:!s.b[sq].immortal};s.last=[sq];return true
+}
+export function freezeBot(s,turns=3){
+  s.frozenTurns=(s.frozenTurns||0)+turns;s.last=[];return s.frozenTurns
+}
+export function toggleRealityLock(s){
+  s.realityLock=!s.realityLock;s.last=[];return s.realityLock
+}
+export function consumeBotFreeze(s){
+  if(!(s.frozenTurns>0))return false
+  s.frozenTurns--;return true
 }
 export function neighbors(sq, size=8) {
   const [x, y] = xy(sq)
@@ -249,10 +268,10 @@ export function powerTargets(s, from, kind) {
 export function threatenedKings(s, catalog = []) {
   const checked = []
   for (const [sq,p] of Object.entries(s.b)) {
-    if (p.t !== 'k') continue
+    if (p.t !== 'k' || (p.immortal && p.c===s.side)) continue
     const attacked = Object.entries(s.b).some(([from,q]) => {
       if (q.c === p.c) return false
-      const power = catalog.find(k=>k.id===q.t)?.power
+      const power = q.c===s.side ? catalog.find(k=>k.id===q.t)?.power : undefined
       if(movement(s.b,from,sq,boardSize(s)))return true
       if(['nova','radiance','beam'].includes(power)&&powerTargets(s,from,power).includes(sq))return true
       if(power==='leap'){
@@ -294,6 +313,7 @@ export function matchOutcome(before, after, nextSide) {
       return { winner: other(color), reason: 'Last king taken' }
     }
   }
+  if(nextSide===after.side && (after.frozenTurns>0||after.realityLock))return null
   const chess = orthodox(after, nextSide)
   if (chess?.isCheckmate()) return { winner: other(nextSide), reason: 'Checkmate' }
   // A player can move the opposite army and even checkmate their own king.
@@ -304,26 +324,7 @@ export function matchOutcome(before, after, nextSide) {
 }
 // Shared power rules are used for both simulation and execution, including custom creations.
 export function applyBotAction(s,a,color=other(s.side)) {
-  if(!a)return false
-  if(a.power==='hole') return blackHole(s,a.to)
-  if(a.power==='convert') return s.b[a.to]?.c!==color && convertPiece(s,a.to,color)
-  if(a.power==='expand')return expandBoard(s,a.size)
-  if(a.power==='rewind'){
-    if(!a.snapshot)return false
-    const old=a.snapshot
-    s.b=copy(old.b);s.size=boardSize(old);s.rights=old.rights||'';s.ep=old.ep||'-';s.last=Object.keys(s.b)
-    return true
-  }
-  if(a.power==='double') return true
-  if(a.power==='spawn'){if(s.b[a.to]||!allSquares(s).includes(a.to))return false;edit(s,a.to,{c:color,t:a.type});return true}
-  if(a.power==='delete'){if(!s.b[a.to]||s.b[a.to].c===color)return false;edit(s,a.to,null);return true}
-  if(a.power==='control'){
-    if(!s.b[a.from]||s.b[a.from].c===color)return false
-    move(s,a.from,a.to,a.promotion);return true
-  }
-  if(!s.b[a.from]||s.b[a.from].c!==color)return false
-  if(a.power)return usePower(s,a.from,a.to,a.power)
-  if(!a.to)return false
+  if(!a||a.power||a.double||!s.b[a.from]||s.b[a.from].c!==color||!a.to||s.b[a.to]?.immortal)return false
   move(s,a.from,a.to,a.promotion);return true
 }
 // The same hard legality filter is applied before ranking AND before execution.
@@ -334,16 +335,13 @@ export function botKingSafe(before,after,color,catalog=[]){
   return !threatenedKings(after,catalog).some(sq=>after.b[sq]?.c===color)
 }
 export function legalBotTrial(s,a,c=other(s.side),catalog=[],standard=orthodox(s,c)){
-  if(!a)return null
+  if(!a||a.power||a.double||s.b[a.to]?.immortal)return null
   if(!a.power){
     if(s.b[a.from]?.c!==c||!allSquares(s).includes(a.to)||a.from===a.to)return null
     if(standard){
       const legal=standard.moves({square:a.from,verbose:true}).some(m=>m.to===a.to&&(!m.promotion||m.promotion===a.promotion))
       if(!legal)return null
     }else if(!movement(s.b,a.from,a.to,boardSize(s)))return null
-  }else if(!['hole','convert','delete','control','spawn','expand','rewind','double'].includes(a.power)){
-    if(s.b[a.from]?.c!==c||catalog.find(x=>x.id===s.b[a.from]?.t)?.power!==a.power)return null
-    if(!['radiance','nova'].includes(a.power)&&!destinations(s,a.from,a.power).includes(a.to))return null
   }
   const trial={...s,b:{...s.b},last:[]}
   if(!applyBotAction(trial,a,c)||!botKingSafe(s,trial,c,catalog))return null
@@ -377,11 +375,6 @@ function botCandidates(s,c,catalog){
       if(standard||!movement(s.b,from,to,size))continue
       out.push({from,to,promotion:p.t==='p'&&Number(to.slice(1))===(c==='w'?size:1)?'q':undefined})
     }
-    const power=catalog.find(k=>k.id===p.t)?.power
-    if(!power)continue
-    const targets=destinations(s,from,power)
-    if(['radiance','nova'].includes(power)){if(targets.length)out.push({from,power})}
-    else for(const to of targets)if(to!==from)out.push({from,to,power})
   }
   return out
 }
@@ -389,53 +382,21 @@ export function sandboxReply(s,catalog,level,profile='adaptive',options={}){
   const c=other(s.side),opponent=other(c),size=boardSize(s),own=Object.entries(s.b).filter(([,p])=>p.c===c),enemy=Object.entries(s.b).filter(([,p])=>p.c===opponent)
   if(!own.length)return null
   const actions=botCandidates(s,c,catalog)
-  const powers=options.powers===true && !options.followup && !(s.botCooldown>0)
-  if(powers){
-    // Global powers are limited to one every three bot turns. Direct king conversion/deletion
-    // is excluded so a new game cannot be ended by a single unavoidable click.
-    for(const [sq,p] of enemy){
-      if(p.t==='k')continue
-      actions.push({from:sq,to:sq,power:'convert'},{from:sq,to:sq,power:'delete'})
-      for(const [to,q] of enemy)if(to!==sq&&q.t!=='k')actions.push({from:sq,to,power:'control',promotion:p.t==='p'&&Number(to.slice(1))===(p.c==='w'?size:1)?'q':undefined})
-    }
-    for(const to of allSquares(s)){
-      if(!enemy.some(([sq])=>{const [x,y]=xy(sq),[a,b]=xy(to);return Math.max(Math.abs(x-a),Math.abs(y-b))<=1}))continue
-      // Black holes may threaten both armies but cannot instantly remove a king via global power.
-      if(Object.entries(s.b).some(([sq,p])=>{const [x,y]=xy(sq),[a,b]=xy(to);return p.t==='k'&&Math.max(Math.abs(x-a),Math.abs(y-b))<=1}))continue
-      actions.push({from:to,to,power:'hole'})
-    }
-    const allowed=catalog.filter(x=>['radiance','nova','beam','leap','echo','exchange'].includes(x.power))
-    for(const [sq,p] of own.filter(([,p])=>p.t==='k'||p.t==='q')){
-      for(const to of neighbors(sq,size).filter(to=>!s.b[to])) for(const type of ['n',...allowed.slice(0,6).map(x=>x.id)])actions.push({from:to,to,power:'spawn',type})
-    }
-    if(size<16&&profile==='architect')actions.push({power:'expand',size:size===8?12:16})
-    for(const snapshot of (options.history||[]).slice(-5)){
-      if(boardSize(snapshot)===size&&snapshot.side===s.side&&Object.values(snapshot.b).some(p=>p.c===c&&p.t==='k')&&Object.values(snapshot.b).some(p=>p.c===opponent&&p.t==='k'))actions.push({power:'rewind',snapshot})
-    }
-  }
   const base=botPosition(s,c,catalog,profile)
-  const globals=new Set(['hole','convert','delete','control','spawn','expand','rewind'])
   const ranked=[], standard=orthodox(s,c)
   // Evaluate the actual resulting board instead of inventing a score for each power.
   for(const a of actions){
     const trial=legalBotTrial(s,a,c,catalog,standard)
     if(!trial)continue
     let score=botPosition(trial,c,catalog,profile)-base
-    if(globals.has(a.power)){
-      score-=a.power==='rewind'?5:a.power==='spawn'?5:4
-      if(profile==='chaos'&&a.power==='hole')score+=4
-      if(profile==='architect'&&a.power==='expand')score+=8
-      if(profile==='architect'&&a.power==='spawn')score+=2
-      if(profile==='guardian'&&a.power==='rewind')score+=3
-    }else if(a.power&&profile==='chaos')score+=1.2
-    const noise=level==='relaxed'?3:level==='sharp'?.12:.65
+    const noise=({beginner:12,easy:5,medium:1.6,hard:.35,master:.08,relaxed:5,balanced:1.6,sharp:.08})[level]??1.6
     ranked.push({a,trial,score:score+Math.random()*noise})
   }
   ranked.sort((a,b)=>b.score-a.score)
   if(!ranked.length)return null
   // Limited one-ply reply search on the strongest candidates. This includes every
   // registered custom ability, and is bounded on larger boards.
-  const depth=level==='sharp'?7:level==='balanced'?4:1
+  const depth=({beginner:1,easy:2,medium:4,hard:7,master:12,relaxed:2,balanced:4,sharp:12})[level]??4
   for(const item of ranked.slice(0,depth)){
     const {trial}=item
     let danger=0
@@ -444,10 +405,9 @@ export function sandboxReply(s,catalog,level,profile='adaptive',options={}){
       const attacked=Object.entries(trial.b).some(([sq,q])=>q.c===opponent&&(movement(trial.b,sq,from,boardSize(trial))||powerTargets(trial,sq,catalog.find(x=>x.id===q.t)?.power).includes(from)&&['nova','radiance','beam'].includes(catalog.find(x=>x.id===q.t)?.power)))
       if(attacked)danger=Math.max(danger,strategicValue(p,catalog))
     }
-    item.final=item.score-danger*(profile==='guardian'?.95:level==='relaxed'?.25:.65)
+    item.final=item.score-danger*(profile==='guardian'?.95:['beginner','easy','relaxed'].includes(level)?.2:level==='master'?.9:.65)
   }
   const best=ranked.slice(0,depth).sort((a,b)=>b.final-a.final)[0]
-  if(powers&&options.allowDouble&&profile!=='guardian'&&best&&!globals.has(best.a.power)&&best.score>2&&best.score<100&&Math.random()<(profile==='chaos'?.65:.25))return {...best.a,double:true}
   return best.a
 }
 export const clone = copy
