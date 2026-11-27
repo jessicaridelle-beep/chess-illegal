@@ -139,7 +139,18 @@ export function usePower(s, from, to, kind) {
     }
     edit(s, to, p)
     delete s.b[from]
-    s.last = [from, to]
+    s.last = [from, mid, to]
+  } else if (kind === 'nova' || kind === 'echo' || kind === 'beam') {
+    const targets = powerTargets(s, from, kind)
+    if (kind === 'nova') {
+      if (!targets.length) return false
+      for (const sq of targets) edit(s, sq, null)
+      s.last = [from, ...targets]
+    } else {
+      if (!targets.includes(to)) return false
+      edit(s, to, kind === 'echo' ? { c: p.c, t: 'p' } : null)
+      s.last = [from, to]
+    }
   } else return false
   s.ep = '-'
   return true
@@ -180,11 +191,46 @@ export function movement(b, from, to) {
   return true
 }
 const squares = [...files].flatMap((file) => ranks.map((rank) => file + rank))
+export function powerTargets(s, from, kind) {
+  const p = s.b[from]
+  if (!p) return []
+  if (kind === 'nova' || kind === 'radiance') return neighbors(from).filter(sq => s.b[sq] && s.b[sq].c !== p.c)
+  if (kind === 'echo') return neighbors(from).filter(sq => !s.b[sq] && !['1','8'].includes(sq[1]))
+  if (kind === 'beam') {
+    const [x,y] = xy(from), out = []
+    for (const [dx,dy] of [[1,0],[-1,0],[0,1],[0,-1]]) {
+      for (let i=1;i<=4;i++) {
+        const to = at(x+dx*i,y+dy*i)
+        if (!to) break
+        if (!s.b[to]) continue
+        if (s.b[to].c !== p.c) out.push(to)
+        break
+      }
+    }
+    return out
+  }
+  return []
+}
+// In a nonstandard position this reports geometric attacks, not forced checkmate.
+export function threatenedKings(s, catalog = []) {
+  const checked = []
+  for (const [sq,p] of Object.entries(s.b)) {
+    if (p.t !== 'k') continue
+    const attacked = Object.entries(s.b).some(([from,q]) => {
+      if (q.c === p.c) return false
+      const power = catalog.find(k=>k.id===q.t)?.power
+      return movement(s.b,from,sq) || (['nova','radiance','beam'].includes(power) && powerTargets(s,from,power).includes(sq))
+    })
+    if (attacked) checked.push(sq)
+  }
+  return checked
+}
 
 // These are suggested destinations. Freeform moves are still accepted on every other square.
 export function destinations(state, from, power) {
   const piece = state.b[from]
   if (!piece) return []
+  if (['nova','radiance','echo','beam'].includes(power)) return powerTargets(state, from, power)
   if (power === 'exchange') return squares.filter((to) => to !== from && state.b[to])
   if (power === 'leap') {
     const [x, y] = xy(from)
@@ -230,6 +276,12 @@ export function sandboxReply(s, catalog, level, cat) {
   for (const from of own) {
     const p = s.b[from],
       power = catalog.find((k) => k.id === p.t)?.power
+    if (['nova','echo','beam'].includes(power)) {
+      const targets = powerTargets(s,from,power)
+      if (power === 'nova' && targets.length) consider({from,power},targets.reduce((sum,to)=>sum+price(s.b[to])*1.5,0))
+      if (power === 'beam') for (const to of targets) consider({from,to,power},price(s.b[to])*1.5)
+      if (power === 'echo') for (const to of targets) consider({from,to,power},1.6)
+    }
     if (power === 'radiance') {
       const score = neighbors(from).reduce(
         (v, sq) => v + (s.b[sq]?.c === other(c) ? price(s.b[sq]) * 1.65 : 0),
