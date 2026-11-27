@@ -15,6 +15,7 @@ import {
   destinations,
   threatenedKings,
   convertPiece,
+  boardSize, boardFiles, boardRanks, allSquares, expandBoard, blackHole, xy,
 } from './game.mjs'
 import { stockfishMove, compareMove } from './engine.mjs'
 import { grades, reviewMove, engineGrade } from './review.mjs'
@@ -63,6 +64,10 @@ const toolInfo = [
   ['flip', 'Reality flip', 'Swap sides'],
   ['control', 'Control', 'Command enemy pieces'],
   ['convert', 'Conversion', 'Turn enemies into allies'],
+  ['double', 'Double turn', 'Two moves before bot'],
+  ['rewind', 'Time reversal', 'Rewind up to 5 actions'],
+  ['hole', 'Black hole', 'Bend the board'],
+  ['expand', 'Board expansion', 'Up to 16 × 16'],
 ]
 const classicOrder = ['p', 'n', 'b', 'r', 'q', 'k']
 function save() {
@@ -132,7 +137,7 @@ async function reviewQueue() {
 }
 
 function recordPly(before, action, actor, nextSide, text, by) {
-  game.result = matchOutcome(before, game, nextSide)
+  game.result = matchOutcome(before, game, actor===game.side && game.doubleTurn ? actor : nextSide)
   const entry = log(text, by)
   const assessment = reviewMove(before, game, action, actor, game.result)
   Object.assign(entry, assessment, { id: crypto.randomUUID(), sq: action.to || action.from, fx: { from: action.from, to: action.to, power: action.power, capture: !!before.b[action.to], promotion: !!action.promotion } })
@@ -229,7 +234,7 @@ function showResult() {
       ? colorName(other(result.winner)) + ' lost its final king.'
       : result.reason === 'Checkmate'
         ? colorName(other(result.winner)) + ' has no legal escape from check.'
-        : result.reason === 'Resignation' ? 'You resigned the game.' : 'The side to move has no legal move and is outside check.'
+        : result.reason === 'Both kings lost' ? 'Both sides lost their last king.' : result.reason === 'Resignation' ? 'You resigned the game.' : 'The side to move has no legal move and is outside check.'
   dialog(
     'Game result',
     '<div class="finish-card ' +
@@ -274,7 +279,9 @@ function chime(bot = false) {
 }
 function endAction(reply = false) {
   resetSelection()
-  game.pending = Boolean(reply && prefs.auto && !game.result)
+  const extra = Boolean(reply && game.doubleTurn && !game.result)
+  if (extra) {game.doubleTurn=0; notice='Extra turn! Make another move before the bot.'}
+  game.pending = Boolean(reply && !extra && prefs.auto && !game.result)
   save()
   render()
   chime()
@@ -316,8 +323,34 @@ function convertAt(sq) {
     'Conversion · '+label(p.t)+' on '+sq+' joins '+colorName(game.side))
   endAction(true)
 }
+function activateDouble() {
+  if(game.doubleTurn) {notice='Double turn is already armed.';renderStatus();return}
+  checkpoint();game.doubleTurn=1;log('Double turn armed · next two actions before bot')
+  mode='move';endAction();notice='Double turn armed. Make your first move.';renderStatus()
+}
+function rewindDialog() {
+  if(!undoStack.length){notice='Nothing to reverse yet.';renderStatus();return}
+  dialog('Time reversal','<p class="dialog-copy">Restore an earlier board, including captured pieces and board size. Your custom library is kept. The reversal itself can be undone.</p><div class="promos">'+Array.from({length:Math.min(5,undoStack.length)},(_,i)=>'<button data-rewind="'+(i+1)+'">'+(i+1)+' action'+(i?'s':'')+' back</button>').join('')+'</div>','rewind')
+  modal.querySelectorAll('[data-rewind]').forEach(b=>b.onclick=()=>{
+    const old=clone(undoStack.at(-Number(b.dataset.rewind)));checkpoint();game=old;game.pending=false;game.doubleTurn=0;spawnColor=game.side;mode='move';log('Time reversal · restored '+b.dataset.rewind+' action(s)');modal.close();endAction();notice='Timeline restored.';renderStatus();reviewQueue()
+  })
+}
+function expandDialog() {
+  const size=boardSize(game)
+  dialog('Board expansion','<p class="dialog-copy">Keep every piece on its existing square. Add empty files and ranks to the right and above. Expanded boards use the sandbox bot, not standard Stockfish.</p><div class="promos">'+[12,16].filter(n=>n>size).map(n=>'<button data-expand="'+n+'">'+n+' × '+n+'</button>').join('')+(size===16?'<p>Maximum size reached. Undo to shrink the board.</p>':'')+'</div>','expand')
+  modal.querySelectorAll('[data-expand]').forEach(b=>b.onclick=()=>{checkpoint();expandBoard(game,Number(b.dataset.expand));mode='move';log('Board expanded · '+b.dataset.expand+' × '+b.dataset.expand);modal.close();endAction()})
+}
+function castHole(sq) {
+  checkpoint()
+  blackHole(game,sq)
+  recordPly(undoStack.at(-1),{from:sq,to:sq,power:'hole'},game.side,other(game.side),'Black hole · '+sq)
+  endAction(true)
+}
 function selectMode(value) {
+  if (value === 'rewind') return rewindDialog()
   if (game.result) return showResult()
+  if (value === 'double') return activateDouble()
+  if (value === 'expand') return expandDialog()
   if (value === 'flip') {
     checkpoint()
     game.side = other(game.side)
@@ -328,7 +361,7 @@ function selectMode(value) {
     endAction()
     return
   }
-  if (['control','convert'].includes(value) && game.pending) {
+  if (['control','convert','hole'].includes(value) && game.pending) {
     cancelBot()
     game.pending = false
     save()
@@ -349,6 +382,7 @@ function actOn(sq) {
     activatePower(selected, sq, powerTarget)
     return
   }
+  if (mode === 'hole') return castHole(sq)
   if (mode === 'convert') return convertAt(sq)
   if (mode === 'spawn') {
     checkpoint()
@@ -395,7 +429,7 @@ function actOn(sq) {
     render()
     return
   }
-  if (p.t === 'p' && sq[1] === (p.c === 'w' ? '8' : '1')) {
+  if (p.t === 'p' && sq.slice(1) === (p.c === 'w' ? String(boardSize(game)) : '1')) {
     piecePicker('Promote pawn', 'Choose what your pawn becomes.', p.c, (t) => travel(from, sq, t))
     return
   }
@@ -432,8 +466,11 @@ function activatePower(from, to, kind) {
   endAction(true)
 }
 function renderBoard() {
-  const order = game.view === 'w' ? [...files] : [...files].reverse(),
-    rows = game.view === 'w' ? ranks : [...ranks].reverse()
+  const size=boardSize(game), fs=boardFiles(game), rs=boardRanks(game)
+  const order = game.view === 'w' ? [...fs] : [...fs].reverse(),
+    rows = game.view === 'w' ? rs : [...rs].reverse()
+  board.style.setProperty('--board-size',size)
+  board.dataset.size=String(size)
   const checked = new Set(threatenedKings(game,catalog()))
   const entry = game.logs.at(-1)
   const animate = prefs.effects && entry?.fx && entry.id !== lastAnimated
@@ -444,7 +481,7 @@ function renderBoard() {
     for (const [fi, f] of order.entries()) {
       const sq = f + r,
         p = game.b[sq],
-        dark = (files.indexOf(f) + r) % 2 === 1
+        dark = (fs.indexOf(f) + r) % 2 === 1
       const title = sq + (p ? ' · ' + colorName(p.c) + ' ' + label(p.t) : ' · empty')
       html +=
         '<button class="square ' +
@@ -465,7 +502,7 @@ function renderBoard() {
         '">' +
         (prefs.coords && fi === 0 ? '<span class="coord rank">' + r + '</span>' : '') +
         (p ? pieceArt(p.t, p.c, catalog()) : '') +
-        (prefs.coords && ri === 7 ? '<span class="coord file">' + f + '</span>' : '') +
+        (prefs.coords && ri === size-1 ? '<span class="coord file">' + f + '</span>' : '') +
         '</button>'
     }
   board.innerHTML = html
@@ -474,8 +511,8 @@ function renderBoard() {
   if (animate && !entry.fx.power && entry.fx.to && entry.fx.from) {
     const target = board.querySelector('[data-sq="'+entry.fx.to+'"]')
     const sign = game.view === 'w' ? 1 : -1
-    const dx = (files.indexOf(entry.fx.from[0])-files.indexOf(entry.fx.to[0]))*sign
-    const dy = (Number(entry.fx.to[1])-Number(entry.fx.from[1]))*sign
+    const dx = (fs.indexOf(entry.fx.from[0])-fs.indexOf(entry.fx.to[0]))*sign
+    const dy = (Number(entry.fx.to.slice(1))-Number(entry.fx.from.slice(1)))*sign
     target?.style.setProperty('--move-x', (dx*120)+'%')
     target?.style.setProperty('--move-y', (dy*120)+'%')
   }
@@ -485,15 +522,15 @@ function paintAnnotations() {
   board.querySelector('.annotations')?.remove()
   if (!annotations.length) return
   const xy = sq => {
-    const x = files.indexOf(sq[0]), y = 8-Number(sq[1])
-    return game.view === 'w' ? [x*100+50,y*100+50] : [(7-x)*100+50,(7-y)*100+50]
+    const size=boardSize(game), x=boardFiles(game).indexOf(sq[0]), y=size-Number(sq.slice(1))
+    return game.view === 'w' ? [x*100+50,y*100+50] : [(size-1-x)*100+50,(size-1-y)*100+50]
   }
   const lines = annotations.map(([a,b]) => {
     const [x,y]=xy(a), [u,v]=xy(b)
     if(a===b) return '<circle cx="'+x+'" cy="'+y+'" r="41" fill="none" stroke="#f59e0b" stroke-width="9"/>'
     return '<line x1="'+x+'" y1="'+y+'" x2="'+u+'" y2="'+v+'" stroke="#f59e0b" stroke-width="13" stroke-linecap="round" marker-end="url(#arrowhead)"/>'
   }).join('')
-  board.insertAdjacentHTML('beforeend','<svg class="annotations" aria-hidden="true" viewBox="0 0 800 800"><defs><marker id="arrowhead" markerWidth="4" markerHeight="4" refX="3" refY="2" orient="auto"><path d="M0 0L4 2L0 4Z" fill="#f59e0b"/></marker></defs>'+lines+'</svg>')
+  board.insertAdjacentHTML('beforeend','<svg class="annotations" aria-hidden="true" viewBox="0 0 '+boardSize(game)*100+' '+boardSize(game)*100+'"><defs><marker id="arrowhead" markerWidth="4" markerHeight="4" refX="3" refY="2" orient="auto"><path d="M0 0L4 2L0 4Z" fill="#f59e0b"/></marker></defs>'+lines+'</svg>')
 }
 function paintDestinations() {
   const targets = new Set(
@@ -530,6 +567,8 @@ function renderStatus() {
     notice ||
     (powerTarget
       ? 'Choose a target for ' + abilities[powerTarget] + '.'
+      : mode === 'hole'
+        ? 'Choose any square. Pieces in the center and adjacent squares vanish; the outer ring moves inward. Allies are affected too.'
       : mode === 'control'
         ? selectedPiece ? 'Controlling '+label(selectedPiece.t)+' · choose any destination, even its allies.' : 'Select a highlighted enemy piece to command it for one move.'
         : mode === 'convert'
@@ -549,7 +588,7 @@ function renderStatus() {
   const checked = threatenedKings(game,catalog())
   const ownCheck = checked.some(sq=>game.b[sq].c===game.side)
   const enemyCheck = checked.some(sq=>game.b[sq].c!==game.side)
-  $('turn').textContent = game.result ? resultTitle() : game.pending ? 'Bot thinking…' : ownCheck ? 'Your king in check!' : enemyCheck ? 'Enemy king in check!' : 'Your turn'
+  $('turn').textContent = game.result ? resultTitle() : game.pending ? 'Bot thinking…' : game.doubleTurn ? 'Double turn armed' : ownCheck ? 'Your king in check!' : enemyCheck ? 'Enemy king in check!' : 'Your turn'
   $('turn').parentElement.classList.toggle('check-turn', !!checked.length && !game.result)
   $('match-result').hidden = !game.result
   if (game.result) $('result-summary').textContent = resultTitle() + ' · ' + game.result.reason
@@ -595,9 +634,9 @@ function render() {
     .map(
       ([key, name, desc]) =>
         '<button class="tool ' +
-        (key === mode ? 'active' : '') +
+        ((key === mode || (key==='double'&&game.doubleTurn)) ? 'active' : '') +
         '" aria-pressed="' +
-        (key === mode) +
+        (key === mode || (key==='double'&&!!game.doubleTurn)) +
         '" data-tool="' +
         key +
         '">' +
@@ -870,6 +909,7 @@ function showHelp() {
       'Custom abilities',
       'Select a custom piece and use its ability under the board. Promote a pawn on its far rank, or use Transform piece to change any piece at any time.',
     ],
+    ['Sandbox powers','Double turn skips one automatic bot reply. Time reversal restores an earlier snapshot. Black hole removes the center and surrounding pieces and pulls the outer ring inward. Expand the board to 12 or 16 squares per side; Stockfish is replaced by the sandbox bot.'],
     ['Control & Conversion','Control an enemy piece for one move without changing its color, or convert it permanently to your army. Converting the last enemy king wins. Both actions can be undone.'],
     ['Board effects','Red highlights identify attacked kings. Right-click a square to mark it, or right-drag to draw an arrow. Customize board colors and animations in settings.'],
     [
@@ -1249,7 +1289,7 @@ document.onkeydown = (e) => {
     return
   }
   if (e.repeat) return
-  const tool = { m: 'move', s: 'spawn', d: 'delete', f: 'flip', c:'control', v:'convert' }[k]
+  const tool = { m: 'move', s: 'spawn', d: 'delete', f: 'flip', c:'control', v:'convert', t:'double', h:'hole', e:'expand', r:'rewind' }[k]
   if (tool) selectMode(tool)
 }
 decorate()
