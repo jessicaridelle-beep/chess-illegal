@@ -15,7 +15,7 @@ import {
   destinations,
   threatenedKings,
   convertPiece,
-  boardSize, boardFiles, boardRanks, allSquares, expandBoard, blackHole, xy, legalBotTrial, sandboxNoMove,
+  boardSize, boardFiles, boardRanks, allSquares, expandBoard, blackHole, xy, legalBotTrial, sandboxNoMove, clonePiece, toggleImmortality, freezeBot, toggleRealityLock, consumeBotFreeze,
 } from './game.mjs'
 import { stockfishMove, compareMove } from './engine.mjs'
 import { grades, reviewMove, engineGrade } from './review.mjs'
@@ -33,7 +33,6 @@ let game = saved.game?.b ? saved.game : fresh(),
   redoStack = saved.redo || []
 let prefs = {
   bot: 'fish',
-  botPowers: true,
   level: 'balanced',
   auto: true,
   coords: true,
@@ -57,7 +56,7 @@ let mode = 'move',
 let lastAnimated = game.logs.at(-1)?.id, annotations = [], arrowStart = null, revealed = new Set(game.logs.filter(x=>!x.search).map(x=>x.id))
 const catalog = () => [...originals, ...custom]
 const label = (t) => names[t] || catalog().find((x) => x.id === t)?.name || 'Custom piece'
-const botProfiles = {fish:['Stockfish','adaptive','Adaptive fallback'],adaptive:['Nexus','adaptive','Adaptive strategist'],guardian:['Aegis','guardian','King safety specialist'],cat:['Bytecat','chaos','Chaos and tricks'],architect:['Architect','architect','Board expansion specialist']}
+const botProfiles = {cat:['Bytecat','chaos',400,'beginner'],architect:['Architect','adaptive',900,'easy'],guardian:['Aegis','guardian',1500,'medium'],adaptive:['Nexus','adaptive',2200,'hard'],fish:['Stockfish','adaptive',3200,'master']}
 const profile = () => botProfiles[prefs.bot] || botProfiles.fish
 const botTitle = () => profile()[0]
 const globalPowers = new Set(['hole','convert','delete','control','spawn','expand','rewind'])
@@ -73,6 +72,10 @@ const toolInfo = [
   ['rewind', 'Time reversal', 'Rewind up to 5 actions'],
   ['hole', 'Black hole', 'Bend the board'],
   ['expand', 'Board expansion', 'Up to 16 × 16'],
+  ['lock','Reality lock','Disable enemy abilities'],
+  ['clone','Cloning','Copy any piece anywhere'],
+  ['immortal','Immortality','Toggle invincibility'],
+  ['freeze','Time freeze','Add 3 skipped bot turns'],
 ]
 const classicOrder = ['p', 'n', 'b', 'r', 'q', 'k']
 function save() {
@@ -286,7 +289,7 @@ function chime(bot = false) {
 function endAction(reply = false) {
   resetSelection()
   const extra = Boolean(reply && game.doubleTurn && !game.result)
-  if (extra) {game.doubleTurn=0; notice='Extra turn! Make another move before the bot.'}
+  if (extra) {game.doubleTurn--; notice='Extra turn! Make another move before the bot.'}
   game.pending = Boolean(reply && !extra && prefs.auto && !game.result)
   save()
   render()
@@ -330,8 +333,7 @@ function convertAt(sq) {
   endAction(true)
 }
 function activateDouble() {
-  if(game.doubleTurn) {notice='Double turn is already armed.';renderStatus();return}
-  checkpoint();game.doubleTurn=1;log('Double turn armed · next two actions before bot')
+  checkpoint();game.doubleTurn=(game.doubleTurn||0)+1;log('Extra turn added · '+game.doubleTurn+' banked')
   mode='move';endAction();notice='Double turn armed. Make your first move.';renderStatus()
 }
 function rewindDialog() {
@@ -356,6 +358,11 @@ function selectMode(value) {
   if (value === 'rewind') return rewindDialog()
   if (game.result) return showResult()
   if (value === 'double') return activateDouble()
+  if(value==='freeze'||value==='lock'){
+    checkpoint();mode='move'
+    const detail=value==='freeze'?'Time freeze · '+freezeBot(game)+' bot turns frozen': 'Reality lock · '+(toggleRealityLock(game)?'active':'disabled')
+    const entry=log(detail);entry.id=crypto.randomUUID();entry.fx={power:value};endAction();notice=detail;renderStatus();return
+  }
   if (value === 'expand') return expandDialog()
   if (value === 'flip') {
     checkpoint()
@@ -367,7 +374,7 @@ function selectMode(value) {
     endAction()
     return
   }
-  if (['control','convert','hole'].includes(value) && game.pending) {
+  if (['control','convert','hole','clone','immortal'].includes(value) && game.pending) {
     cancelBot()
     game.pending = false
     save()
@@ -387,6 +394,15 @@ function actOn(sq) {
   if (powerTarget) {
     activatePower(selected, sq, powerTarget)
     return
+  }
+  if(mode==='immortal'){
+    if(!game.b[sq]){notice='Choose any piece, even a king.';renderStatus();return}
+    checkpoint();toggleImmortality(game,sq);const entry=log('Immortality · '+label(game.b[sq].t)+' '+(game.b[sq].immortal?'protected':'unprotected')+' on '+sq);entry.id=crypto.randomUUID();entry.fx={power:'immortal',to:sq};endAction();return
+  }
+  if(mode==='clone'){
+    if(!selected){if(game.b[sq]){selected=sq;notice='Choose any other square to clone the piece.';render()}return}
+    if(selected===sq){resetSelection();render();return}
+    const from=selected;checkpoint();clonePiece(game,from,sq);const entry=log('Cloning · '+label(game.b[sq].t)+' '+from+' → '+sq);entry.id=crypto.randomUUID();entry.fx={power:'clone',from,to:sq};endAction();return
   }
   if (mode === 'hole') return castHole(sq)
   if (mode === 'convert') return convertAt(sq)
@@ -482,6 +498,8 @@ function renderBoard() {
   const animate = prefs.effects && entry?.fx && entry.id !== lastAnimated
   lastAnimated = entry?.id
   board.dataset.theme = prefs.theme
+  board.dataset.frozen=String(game.frozenTurns||0)
+  board.dataset.locked=String(!!game.realityLock)
   let html = ''
   for (const [ri, r] of rows.entries())
     for (const [fi, f] of order.entries()) {
@@ -495,6 +513,9 @@ function renderBoard() {
         (selected === sq ? 'selected ' : '') +
         (game.last.includes(sq) ? 'last ' : '') +
         (checked.has(sq) ? 'king-check ' : '') +
+        (p?.immortal?'immortal-piece ':'') +
+        (p?.c!==game.side && p && game.frozenTurns>0?'frozen-piece ':'') +
+        (p?.c!==game.side && p && game.realityLock?'locked-piece ':'') +
         (animate && entry.fx.power && game.last.includes(sq) ? 'power-flash fx-' + entry.fx.power + ' ' : '') +
         (animate && !entry.fx.power && entry.fx.to === sq ? 'piece-arrival ' + (entry.fx.capture ? 'capture-flash ' : '') + (entry.fx.promotion ? 'promotion-flash ' : '') : '') +
         '" aria-label="' +
@@ -573,6 +594,8 @@ function renderStatus() {
     notice ||
     (powerTarget
       ? 'Choose a target for ' + abilities[powerTarget] + '.'
+      : mode === 'clone' ? selectedPiece?'Choose any destination, including occupied squares.':'Select any piece to duplicate, including kings.'
+      : mode === 'immortal' ? 'Tap any piece to toggle permanent protection from bot captures.'
       : mode === 'hole'
         ? 'Choose any square. Pieces in the center and adjacent squares vanish; the outer ring moves inward. Allies are affected too.'
       : mode === 'control'
@@ -594,14 +617,14 @@ function renderStatus() {
   const checked = threatenedKings(game,catalog())
   const ownCheck = checked.some(sq=>game.b[sq].c===game.side)
   const enemyCheck = checked.some(sq=>game.b[sq].c!==game.side)
-  $('turn').textContent = game.result ? resultTitle() : game.pending ? 'Bot thinking…' : game.doubleTurn ? 'Double turn armed' : ownCheck ? 'Your king in check!' : enemyCheck ? 'Enemy king in check!' : 'Your turn'
+  $('turn').textContent = game.result ? resultTitle() : game.pending ? 'Bot thinking…' : game.frozenTurns>0 ? 'Bot frozen · '+game.frozenTurns+' turns' : game.doubleTurn ? 'Double turn armed' : ownCheck ? 'Your king in check!' : enemyCheck ? 'Enemy king in check!' : 'Your turn'
   $('turn').parentElement.classList.toggle('check-turn', !!checked.length && !game.result)
   $('match-result').hidden = !game.result
   if (game.result) $('result-summary').textContent = resultTitle() + ' · ' + game.result.reason
-  $('bot-name').textContent = prefs.bot==='fish' && !orthodox(game,other(game.side)) ? 'Nexus · fallback' : botTitle()
+  $('bot-name').textContent = botTitle()+' ('+profile()[2]+')'
   $('bot-avatar').src = prefs.bot === 'cat' ? 'art/cat.svg' : 'art/bot.svg'
   const compatible = prefs.bot === 'fish' && orthodox(game, other(game.side))
-  $('bot-detail').textContent = (compatible ? 'Stockfish · '+prefs.level : profile()[2]+' · '+prefs.level+(prefs.botPowers?' · Powers '+(game.botCooldown>0?'cooldown '+game.botCooldown:'ready'):' · Powers off'))+' · '+colorName(other(game.side))
+  $('bot-detail').textContent = (compatible?'Stockfish':'Sandbox engine')+' · '+colorName(other(game.side))+' · No powers'+(game.realityLock?' · Locked':'')+(game.frozenTurns>0?' · Frozen '+game.frozenTurns:'')
   $('player-side').textContent = colorName(game.side) + ' pieces'
   $('side-dot').classList.toggle('black', game.side === 'b')
   $('undo').disabled = !undoStack.length
@@ -633,9 +656,9 @@ function render() {
     .map(
       ([key, name, desc]) =>
         '<button class="tool ' +
-        ((key === mode || (key==='double'&&game.doubleTurn)) ? 'active' : '') +
+        ((key === mode || (key==='double'&&game.doubleTurn)||(key==='lock'&&game.realityLock)||(key==='freeze'&&game.frozenTurns>0)) ? 'active' : '') +
         '" aria-pressed="' +
-        (key === mode || (key==='double'&&!!game.doubleTurn)) +
+        (key === mode || (key==='double'&&!!game.doubleTurn)||(key==='lock'&&!!game.realityLock)||(key==='freeze'&&game.frozenTurns>0)) +
         '" data-tool="' +
         key +
         '">' +
@@ -672,7 +695,8 @@ function render() {
 }
 async function botMove(token) {
   if (epoch !== token || !game.pending || game.result) return
-  const c = other(game.side), followup=!!game.botFollowup,
+  if(consumeBotFreeze(game)){game.pending=false;game.botFollowup=false;log('Time freeze · bot skips turn ('+game.frozenTurns+' remaining)');notice='Bot turn skipped';save();render();return}
+  const c = other(game.side), followup=false,
     ch = prefs.bot === 'fish' && !followup ? orthodox(game, c) : null
   let action = null,
     by = botTitle(),
@@ -683,7 +707,7 @@ async function botMove(token) {
       game.result = matchOutcome(game, game, c)
       pass = game.result?.reason || 'No legal move'
     } else {
-      engine = stockfishMove(ch.fen(), prefs.level, moves)
+      engine = stockfishMove(ch.fen(), profile()[3], moves)
       action = await engine.result
       if (epoch !== token) return
       engine = null
@@ -693,8 +717,8 @@ async function botMove(token) {
       }
     }
   } else {
-    action = sandboxReply(game,catalog(),prefs.level,profile()[1],{powers:prefs.botPowers,followup,allowDouble:true,history:undoStack})
-    if (prefs.bot === 'fish') by = 'Nexus · fallback'
+    action = sandboxReply(game,catalog(),profile()[3],profile()[1])
+    if (prefs.bot === 'fish') by = 'Stockfish · sandbox fallback'
     if (!action) {
       game.result=sandboxNoMove(game,catalog(),c)
       pass=game.result?.reason||'Pass · no safe moves available'
@@ -707,7 +731,7 @@ async function botMove(token) {
     const safe=legalBotTrial(game,action,c,catalog())
     if(safe){
       Object.assign(game,safe)
-      extra=!!action.double&&!followup
+      extra=false
       if(globalPowers.has(power)||extra)game.botCooldown=3
       else if(!followup&&game.botCooldown>0)game.botCooldown--
       if(extra)log('Double turn activated',by)
@@ -902,7 +926,7 @@ function showHelp() {
     ['Board effects','Red highlights identify attacked kings. Right-click a square to mark it, or right-drag to draw an arrow. Customize board colors and animations in settings.'],
     [
       'Bot turns',
-      'Stockfish plays conventional positions and switches to Nexus on nonstandard boards. All bots must resolve checks and cannot move their kings into danger, including custom-piece attack zones. Sandbox powers still follow their own rules. Nexus adapts, Aegis defends, Bytecat prefers chaos and Architect builds. Global bot powers have a cooldown; direct global king removal or conversion is disabled.'
+      'Bots never use powers, even when controlling a custom piece. They must move legally and protect their king. Each opponent has a different estimated Elo and search strength. Only the player can use unlimited cloning, immortality, time freeze, reality lock and other tools.'
     ],
   ]
   dialog(
@@ -921,42 +945,16 @@ function selectOptions(values, current) {
     )
     .join('')
 }
-function botFields() {
-  return (
-    '<label class="form-field">Opponent<select id="opponent">' +
-    selectOptions(
-      [
-        ['fish', 'Stockfish'],
-        ['adaptive','Nexus · adaptive sandbox'],
-        ['guardian','Aegis · defensive sandbox'],
-        ['cat', 'Bytecat · chaos sandbox'],
-        ['architect','Architect · builder sandbox'],
-      ],
-      prefs.bot,
-    ) +
-    '</select></label><label class="form-field">Difficulty<select id="level">' +
-    selectOptions(
-      [
-        ['relaxed', 'Relaxed'],
-        ['balanced', 'Balanced'],
-        ['sharp', 'Sharp'],
-      ],
-      prefs.level,
-    ) +
-    '</select></label>'
-  )
+function botFields(){
+  return '<label class="form-field">Opponent · estimated Elo<select id="opponent">'+selectOptions(Object.entries(botProfiles).map(([id,p])=>[id,p[0]+' · '+p[2]+' Elo']),prefs.bot)+'</select></label><p class="dialog-copy">Only you can use abilities. Ratings are fictional difficulty targets, not measured Elo.</p>'
 }
-function readBotFields() {
-  prefs.bot = $('opponent').value
-  prefs.level = $('level').value
-}
+function readBotFields(){prefs.bot=$('opponent').value;prefs.level=profile()[3]}
 function settings() {
   dialog(
     'Game settings',
     botFields() +
       [
         ['auto', 'Automatic bot replies'],
-        ['botPowers','Allow sandbox bots to use global powers'],
         ['coords', 'Board coordinates'],
         ['sound', 'Move sounds'],
         ['effects', 'Animated moves and powers'],
@@ -979,7 +977,7 @@ function settings() {
   function apply() {
     cancelBot()
     readBotFields()
-    for (const k of ['auto', 'coords', 'sound', 'effects', 'cinematic','botPowers']) prefs[k] = $('pref-' + k).checked
+    for (const k of ['auto', 'coords', 'sound', 'effects', 'cinematic']) prefs[k] = $('pref-' + k).checked
     prefs.theme = $('theme').value
     game.pending = game.pending && prefs.auto
     save()
@@ -1281,7 +1279,7 @@ document.onkeydown = (e) => {
     return
   }
   if (e.repeat) return
-  const tool = { m: 'move', s: 'spawn', d: 'delete', f: 'flip', c:'control', v:'convert', t:'double', h:'hole', e:'expand', r:'rewind' }[k]
+  const tool = { m: 'move', s: 'spawn', d: 'delete', f: 'flip', c:'control', v:'convert', t:'double', h:'hole', e:'expand', r:'rewind', l:'lock', x:'clone', i:'immortal', z:'freeze' }[k]
   if (tool) selectMode(tool)
 }
 decorate()
