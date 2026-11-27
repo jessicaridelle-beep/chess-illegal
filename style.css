@@ -1372,3 +1372,50 @@ input[type='checkbox'] {
   font-size: 12px;
   color: var(--muted);
 }
+
+/* Arena effects and analysis tools */
+.board[data-theme="wood"]{--light:#eed8b0;--dark:#b78963}
+.board[data-theme="blue"]{--light:#cbd9ed;--dark:#597ba7}
+.board[data-theme="mono"]{--light:#d9d9d9;--dark:#777d86}
+.board[data-theme="green"]{--light:#ebecd0;--dark:#779556}
+.square.king-check{background-image:radial-gradient(ellipse at center,#ff4344 0%,#d82730c9 42%,#9f111e35 76%,transparent 100%);box-shadow:inset 0 0 0 2px #b3202a}
+.square.king-check .piece{filter:drop-shadow(0 0 5px #ff3333)}
+.turn.check-turn{background:#46272a;color:#ffb4b4;border-color:#a04448}
+.square.piece-arrival{z-index:4}
+.square.piece-arrival .piece{animation:arena-slide 180ms cubic-bezier(.2,.8,.2,1) both}
+@keyframes arena-slide{from{transform:translate(var(--move-x,0%),var(--move-y,0%))}to{transform:translate(0,0)}}
+.square.power-flash{--fx:#b78aff;--fxlight:#f5dcff}
+.square.fx-radiance{--fx:#f6cb62;--fxlight:#fff4af}
+.square.fx-exchange{--fx:#ad72ff;--fxlight:#e9c7ff}
+.square.fx-leap{--fx:#8a91ff;--fxlight:#e0e6ff}
+.square.fx-nova{--fx:#ff602f;--fxlight:#ffed9a}
+.square.fx-echo{--fx:#31e5ac;--fxlight:#c6fff0}
+.square.fx-beam{--fx:#22c9ff;--fxlight:#e0faff}
+.square.power-flash::after,.square.capture-flash::after,.square.promotion-flash::after{
+  content:'';position:absolute;inset:0;border:0;border-radius:0;pointer-events:none;z-index:5;
+  background:radial-gradient(circle,var(--fxlight,#fff6bb) 4%,var(--fx,#ffaf48) 35%,transparent 70%);
+  animation:arena-burst 650ms ease-out both;
+}
+.square.fx-beam::after{background:linear-gradient(115deg,transparent 25%,#20cfff 44%,#fff 50%,#20cfff 56%,transparent 75%);animation:arena-beam 560ms ease-out both}
+.square.fx-exchange::after{background:conic-gradient(transparent,#b784ff,transparent,#e9c7ff,transparent);animation:arena-phase 600ms ease-out both}
+.square.fx-echo::after{background:radial-gradient(circle,transparent 15%,#31e5ac 20%,transparent 31%,#c6fff0 39%,transparent 49%);animation:arena-burst 800ms ease-out both}
+.square.fx-nova::after{animation:arena-burst 800ms ease-out both}
+.square.fx-leap::after{background:radial-gradient(ellipse,#fff 5%,#8a91ff 25%,transparent 65%)}
+.square.capture-flash::after{--fx:#f15c4c;--fxlight:#fff0d4}
+.square.promotion-flash::after{--fx:#edbd45;--fxlight:#fff7c0}
+@keyframes arena-burst{0%{opacity:1;transform:scale(.3)}55%{opacity:.85;transform:scale(1.05)}100%{opacity:0;transform:scale(1.3)}}
+@keyframes arena-beam{0%{opacity:0;transform:scale(.4)}25%{opacity:1;transform:scale(1)}100%{opacity:0;transform:scale(1.15)}}
+@keyframes arena-phase{0%{opacity:1;transform:rotate(0deg) scale(.5)}100%{opacity:0;transform:rotate(180deg) scale(1.2)}}
+.annotations{position:absolute;inset:0;width:100%;height:100%;z-index:8;pointer-events:none;opacity:.85}
+.grade-great{--grade-bg:#377fc8;--grade-fg:#e9f5ff}
+.grade-miss{--grade-bg:#9b477e;--grade-fg:#ffe5f8}
+.grade-sandbox{--grade-bg:#5e6572;--grade-fg:#f3f5ff}
+.grade-cinematic{position:absolute;inset:0;z-index:10;pointer-events:none;display:grid;place-items:center;overflow:hidden}
+.grade-cinematic::before{content:'';position:absolute;inset:0;background:radial-gradient(ellipse,transparent 15%,var(--grade-bg) 130%);animation:grade-vignette 1.35s both}
+.grade-cinematic .grade-hero{position:relative;text-align:center;align-self:start;margin-top:8%;color:var(--grade-fg);text-shadow:0 3px 4px #000,0 0 20px var(--grade-bg);animation:grade-drop 1.35s both}
+.grade-hero strong{display:block;font:800 italic clamp(30px,7vw,66px)/1 Barlow,sans-serif;letter-spacing:1px;text-transform:uppercase}
+.grade-hero span{display:inline-grid;place-items:center;background:var(--grade-bg);border:2px solid currentColor;width:50px;height:50px;border-radius:50%;font:900 25px DM,sans-serif;margin-bottom:5px}
+@keyframes grade-drop{0%{opacity:0;transform:translateY(-16px) scale(.78)}18%{opacity:1;transform:translateY(0) scale(1.04)}32%,76%{opacity:1;transform:scale(1)}100%{opacity:0;transform:translateY(-8px) scale(.96)}}
+@keyframes grade-vignette{0%{opacity:0}20%{opacity:.65}65%{opacity:.35}100%{opacity:0}}
+.grade-pin.grade-brilliant,.grade-pin.grade-great{box-shadow:0 0 10px var(--grade-bg)}
+@media(prefers-reduced-motion:reduce){.square .piece,.square::after,.grade-cinematic::before,.grade-cinematic .grade-hero{animation:none!important}.grade-cinematic{display:none}}
