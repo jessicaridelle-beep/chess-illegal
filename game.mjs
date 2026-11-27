@@ -295,76 +295,122 @@ export function matchOutcome(before, after, nextSide) {
   if (chess?.isStalemate()) return { winner: null, reason: 'Stalemate' }
   return null
 }
-export function sandboxReply(s, catalog, level, cat) {
-  const c = other(s.side),
-    own = Object.keys(s.b).filter((k) => s.b[k].c === c),
-    enemy = Object.keys(s.b).filter((k) => s.b[k].c !== c)
-  let best = null,
-    maximum = -Infinity
-  function consider(action, score) {
-    score += Math.random() * (cat ? 3 : level === 'relaxed' ? 4 : level === 'sharp' ? 0.35 : 1)
-    if (score > maximum) {
-      maximum = score
-      best = action
+// Shared power rules are used for both simulation and execution, including custom creations.
+export function applyBotAction(s,a,color=other(s.side)) {
+  if(!a)return false
+  if(a.power==='hole') return blackHole(s,a.to)
+  if(a.power==='convert') return s.b[a.to]?.c!==color && convertPiece(s,a.to,color)
+  if(a.power==='expand')return expandBoard(s,a.size)
+  if(a.power==='rewind'){
+    if(!a.snapshot)return false
+    const old=a.snapshot
+    s.b=copy(old.b);s.size=boardSize(old);s.rights=old.rights||'';s.ep=old.ep||'-';s.last=Object.keys(s.b)
+    return true
+  }
+  if(a.power==='double') return true
+  if(a.power==='spawn'){if(s.b[a.to]||!allSquares(s).includes(a.to))return false;edit(s,a.to,{c:color,t:a.type});return true}
+  if(a.power==='delete'){if(!s.b[a.to]||s.b[a.to].c===color)return false;edit(s,a.to,null);return true}
+  if(a.power==='control'){
+    if(!s.b[a.from]||s.b[a.from].c===color)return false
+    move(s,a.from,a.to,a.promotion);return true
+  }
+  if(!s.b[a.from]||s.b[a.from].c!==color)return false
+  if(a.power)return usePower(s,a.from,a.to,a.power)
+  if(!a.to)return false
+  move(s,a.from,a.to,a.promotion);return true
+}
+const botValues={p:1,n:3,b:3.2,r:5,q:9,k:1000}
+const strategicValue=(p,catalog)=>p?(botValues[p.t]??({radiance:8,nova:8,beam:7,exchange:6,leap:6,echo:5}[catalog.find(x=>x.id===p.t)?.power]||6)):0
+function botPosition(s,c,catalog,profile){
+  const n=boardSize(s), center=(n-1)/2, entries=Object.entries(s.b), kings=threatenedKings(s,catalog)
+  let score=0
+  for(const [sq,p] of entries){
+    const sign=p.c===c?1:-1,[x,y]=xy(sq),v=strategicValue(p,catalog)
+    score+=sign*(v+(p.t==='k'?0:.06*(n-Math.abs(x-center)-Math.abs(y-center)))+(p.t==='p'?.055*(p.c==='w'?y:n-1-y):0))
+    if(p.t==='k'&&kings.includes(sq))score-=sign*(profile==='guardian'?18:11)
+  }
+  return score
+}
+function botCandidates(s,c,catalog){
+  const out=[],size=boardSize(s), squares=allSquares(s)
+  for(const [from,p] of Object.entries(s.b)){
+    if(p.c!==c)continue
+    for(const to of squares){
+      if(!movement(s.b,from,to,size))continue
+      out.push({from,to,promotion:p.t==='p'&&Number(to.slice(1))===(c==='w'?size:1)?'q':undefined})
+    }
+    const power=catalog.find(k=>k.id===p.t)?.power
+    if(!power)continue
+    const targets=destinations(s,from,power)
+    if(['radiance','nova'].includes(power)){if(targets.length)out.push({from,power})}
+    else for(const to of targets)if(to!==from)out.push({from,to,power})
+  }
+  return out
+}
+export function sandboxReply(s,catalog,level,profile='adaptive',options={}){
+  const c=other(s.side),opponent=other(c),size=boardSize(s),own=Object.entries(s.b).filter(([,p])=>p.c===c),enemy=Object.entries(s.b).filter(([,p])=>p.c===opponent)
+  if(!own.length)return null
+  const actions=botCandidates(s,c,catalog)
+  const powers=options.powers===true && !options.followup && !(s.botCooldown>0)
+  if(powers){
+    // Global powers are limited to one every three bot turns. Direct king conversion/deletion
+    // is excluded so a new game cannot be ended by a single unavoidable click.
+    for(const [sq,p] of enemy){
+      if(p.t==='k')continue
+      actions.push({from:sq,to:sq,power:'convert'},{from:sq,to:sq,power:'delete'})
+      for(const [to,q] of enemy)if(to!==sq&&q.t!=='k')actions.push({from:sq,to,power:'control',promotion:p.t==='p'&&Number(to.slice(1))===(p.c==='w'?size:1)?'q':undefined})
+    }
+    for(const to of allSquares(s)){
+      if(!enemy.some(([sq])=>{const [x,y]=xy(sq),[a,b]=xy(to);return Math.max(Math.abs(x-a),Math.abs(y-b))<=1}))continue
+      // Black holes may threaten both armies but cannot instantly remove a king via global power.
+      if(Object.entries(s.b).some(([sq,p])=>{const [x,y]=xy(sq),[a,b]=xy(to);return p.t==='k'&&Math.max(Math.abs(x-a),Math.abs(y-b))<=1}))continue
+      actions.push({from:to,to,power:'hole'})
+    }
+    const allowed=catalog.filter(x=>['radiance','nova','beam','leap','echo','exchange'].includes(x.power))
+    for(const [sq,p] of own.filter(([,p])=>p.t==='k'||p.t==='q')){
+      for(const to of neighbors(sq,size).filter(to=>!s.b[to])) for(const type of ['n',...allowed.slice(0,6).map(x=>x.id)])actions.push({from:to,to,power:'spawn',type})
+    }
+    if(size<16&&profile==='architect')actions.push({power:'expand',size:size===8?12:16})
+    for(const snapshot of (options.history||[]).slice(-5)){
+      if(boardSize(snapshot)===size&&snapshot.side===s.side&&Object.values(snapshot.b).some(p=>p.c===c&&p.t==='k')&&Object.values(snapshot.b).some(p=>p.c===opponent&&p.t==='k'))actions.push({power:'rewind',snapshot})
     }
   }
-  for (const from of own) {
-    const p = s.b[from],
-      power = catalog.find((k) => k.id === p.t)?.power
-    if (['nova','echo','beam'].includes(power)) {
-      const targets = powerTargets(s,from,power)
-      if (power === 'nova' && targets.length) consider({from,power},targets.reduce((sum,to)=>sum+price(s.b[to])*1.5,0))
-      if (power === 'beam') for (const to of targets) consider({from,to,power},price(s.b[to])*1.5)
-      if (power === 'echo') for (const to of targets) consider({from,to,power},1.6)
-    }
-    if (power === 'radiance') {
-      const score = neighbors(from,boardSize(s)).reduce(
-        (v, sq) => v + (s.b[sq]?.c === other(c) ? price(s.b[sq]) * 1.65 : 0),
-        0,
-      )
-      if (score) consider({ from, power }, score)
-    }
-    for (const f of boardFiles(s))
-      for (const rank of boardRanks(s)) {
-        const to = f + rank
-        if (to === from || s.b[to]?.c === c) continue
-        if (power === 'exchange' && s.b[to]) {
-          const [x, y] = xy(to)
-          consider(
-            { from, to, power },
-            (3.5 - Math.abs(3.5 - x)) * 0.15 + (3.5 - Math.abs(3.5 - y)) * 0.15,
-          )
-        }
-        if (power === 'leap') {
-          const [x, y] = xy(from),
-            [a, b] = xy(to),
-            dx = Math.abs(x - a),
-            dy = Math.abs(y - b)
-          if (Math.max(dx, dy) === 2 && [0, 2].includes(dx) && [0, 2].includes(dy)) {
-            const mid = s.b[at((x + a) / 2, (y + b) / 2,boardSize(s))]
-            consider(
-              { from, to, power },
-              price(s.b[to]) * 1.4 + (mid?.c === other(c) ? price(mid) * 1.6 : 0),
-            )
-          }
-        }
-        if (!movement(s.b, from, to,boardSize(s))) continue
-        const [x, y] = xy(to),
-          b = { ...s.b, [to]: p }
-        delete b[from]
-        let score = price(s.b[to]) * 1.5 + (7 - Math.abs(x - 3.5) - Math.abs(y - 3.5)) * 0.12
-        if (enemy.some((sq) => sq !== to && movement(b, sq, to,boardSize(s)))) score -= price(p) * 0.68
-        if (p.t === 'p' && rank === (c === 'w' ? boardSize(s) : 1)) score += 8
-        consider(
-          { from, to, promotion: p.t === 'p' && rank === (c === 'w' ? boardSize(s) : 1) ? 'q' : undefined },
-          score,
-        )
-      }
+  const base=botPosition(s,c,catalog,profile)
+  const globals=new Set(['hole','convert','delete','control','spawn','expand','rewind'])
+  const ranked=[]
+  // Evaluate the actual resulting board instead of inventing a score for each power.
+  for(const a of actions){
+    const trial={...s,b:{...s.b},last:[]}
+    if(!applyBotAction(trial,a,c))continue
+    let score=botPosition(trial,c,catalog,profile)-base
+    if(globals.has(a.power)){
+      score-=a.power==='rewind'?5:a.power==='spawn'?5:4
+      if(profile==='chaos'&&a.power==='hole')score+=4
+      if(profile==='architect'&&a.power==='expand')score+=8
+      if(profile==='architect'&&a.power==='spawn')score+=2
+      if(profile==='guardian'&&a.power==='rewind')score+=3
+    }else if(a.power&&profile==='chaos')score+=1.2
+    if(!Object.values(trial.b).some(p=>p.c===c&&p.t==='k')&&own.some(([,p])=>p.t==='k'))score-=2000
+    const noise=level==='relaxed'?3:level==='sharp'?.12:.65
+    ranked.push({a,trial,score:score+Math.random()*noise})
   }
-  if (best) return best
-  if (!own.length) return null
-  const to = allSquares(s)
-    .find((sq) => s.b[sq]?.c !== c)
-  return to ? { from: own[0], to } : null
+  ranked.sort((a,b)=>b.score-a.score)
+  if(!ranked.length)return null
+  // Limited one-ply reply search on the strongest candidates. This includes every
+  // registered custom ability, and is bounded on larger boards.
+  const depth=level==='sharp'?7:level==='balanced'?4:1
+  for(const item of ranked.slice(0,depth)){
+    const {trial}=item
+    let danger=0
+    for(const [from,p] of Object.entries(trial.b)){
+      if(p.c!==c)continue
+      const attacked=Object.entries(trial.b).some(([sq,q])=>q.c===opponent&&(movement(trial.b,sq,from,boardSize(trial))||powerTargets(trial,sq,catalog.find(x=>x.id===q.t)?.power).includes(from)&&['nova','radiance','beam'].includes(catalog.find(x=>x.id===q.t)?.power)))
+      if(attacked)danger=Math.max(danger,strategicValue(p,catalog))
+    }
+    item.final=item.score-danger*(profile==='guardian'?.95:level==='relaxed'?.25:.65)
+  }
+  const best=ranked.slice(0,depth).sort((a,b)=>b.final-a.final)[0]
+  if(powers&&options.allowDouble&&profile!=='guardian'&&best&&!globals.has(best.a.power)&&best.score>2&&best.score<100&&Math.random()<(profile==='chaos'?.65:.25))return {...best.a,double:true}
+  return best.a
 }
 export const clone = copy
