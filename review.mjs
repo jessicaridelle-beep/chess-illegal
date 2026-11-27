@@ -7,6 +7,9 @@ const points = (board, side) =>
 
 export const grades = {
   brilliant: ['Brilliant', '!!'],
+  great: ['Great', '!'],
+  miss: ['Miss', '×'],
+  sandbox: ['Sandbox move', '✦'],
   best: ['Best', '★'],
   excellent: ['Excellent', '!'],
   good: ['Good', '✓'],
@@ -120,49 +123,43 @@ export function reviewMove(before, after, action, actor, outcome) {
       change > 0.5 ? 'Your side gains material.' : 'The material balance holds.',
       'Sandbox estimate',
     )
-  if (power || mover.c !== actor) return { grade: quick }
+  const sandbox = { grade: grade('sandbox', quick.detail, 'Sandbox estimate · ' + grades[quick.key][0]) }
+  if (power || mover.c !== actor) return sandbox
   const chess = orthodox(before, actor)
   const candidate = chess
     ?.moves({ square: from, verbose: true })
     .find((m) => m.to === to && m.promotion === promotion)
-  if (!candidate) return { grade: quick }
+  if (!candidate) return sandbox
   const fen = chess.fen()
+  const alternatives = chess.moves({verbose:true}).map(m=>m.from+m.to+(m.promotion||'')).filter(m=>m!==from+to+(promotion||''))
   chess.move(candidate)
   const captured = value[candidate.captured] || 0
   const offer = worth(mover) >= 3 && exchangeGain(chess, to) - captured >= 1.75
-  return { grade: quick, search: { fen, played: from + to + (promotion || ''), offer } }
+  return { grade: sandbox.grade, search: { fen, played: from + to + (promotion || ''), offer, alternatives } }
 }
 function scoreInPawns(score) {
   if (score.type === 'cp') return score.value / 100
   return Math.sign(score.value) * (100 - Math.min(Math.abs(score.value), 90) / 100)
 }
+// Elo-independent expected-points approximation, not Chess.com's private model.
+const expected = score => score.type === 'mate' ? (score.value > 0 ? 1 : 0) : 1/(1+Math.exp(-score.value/155))
 export function engineGrade(search, answer) {
-  const best = scoreInPawns(answer.best.score),
-    played = scoreInPawns(answer.actual.score)
-  const top = answer.best.move === search.played,
-    loss = top ? 0 : Math.max(0, best - played)
-  const source = 'Stockfish review'
-  if (
-    search.offer &&
-    loss <= 0.35 &&
-    played >= -0.45 &&
-    (best < 5 || answer.actual.score.type === 'mate')
-  )
-    return grade(
-      'brilliant',
-      'A sound material sacrifice. Stockfish still puts the move close to its first choice.',
-      source,
-    )
-  if (top) return grade('best', 'Stockfish chose the same move in this position.', source)
-  if (loss <= 0.3)
-    return grade('excellent', 'The evaluation stays close to the engine’s top line.', source)
-  if (loss <= 0.8) return grade('good', 'The move keeps most of the position’s value.', source)
-  if (loss <= 1.6) return grade('inaccuracy', 'Stockfish found a stronger continuation.', source)
-  if (loss <= 3)
-    return grade('mistake', 'The engine sees a significant drop after this move.', source)
-  return grade(
-    'blunder',
-    'Stockfish finds a much stronger continuation than the move played.',
-    source,
-  )
+  const best = expected(answer.best.score), played = expected(answer.actual.score)
+  const top = answer.best.move === search.played
+  const loss = top ? 0 : Math.max(0,best-played)
+  const source = 'Stockfish review · expected-points estimate'
+  const result = (key,detail) => ({...grade(key,detail,source),loss,accuracy: Math.max(0,100*(1-loss)),bestMove:answer.best.move})
+  const explanation = ' Best line: ' + answer.best.move + '. Expected score loss: ' + (loss*100).toFixed(1) + ' points.'
+  const alternative = answer.alternative?.score ? expected(answer.alternative.score) : null
+  if (search.offer && loss<=.02 && played>=.48 && alternative!==null && alternative<.93)
+    return result('brilliant','Sound material sacrifice with a strong engine evaluation.'+explanation)
+  if (top && alternative!==null && best-alternative>=.18 && best>=.35 && alternative<.75)
+    return result('great','A critical move substantially stronger than every searched alternative.'+explanation)
+  if (top || loss<.001) return result('best','Matches the best engine evaluation.'+explanation)
+  if (loss<=.02) return result('excellent','Very close to the engine’s best line.'+explanation)
+  if (loss<=.05) return result('good','Retains most of the expected score.'+explanation)
+  if (best>=.78 && played<=.58 && loss>=.15) return result('miss','Missed a strong winning opportunity.'+explanation)
+  if (loss<=.10) return result('inaccuracy','A stronger continuation was available.'+explanation)
+  if (loss<=.20) return result('mistake','A significant drop in expected score.'+explanation)
+  return result('blunder','A major loss of expected score.'+explanation)
 }
