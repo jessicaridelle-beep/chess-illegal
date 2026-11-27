@@ -14,6 +14,7 @@ import {
   matchOutcome,
   destinations,
   threatenedKings,
+  convertPiece,
 } from './game.mjs'
 import { stockfishMove, compareMove } from './engine.mjs'
 import { grades, reviewMove, engineGrade } from './review.mjs'
@@ -60,6 +61,8 @@ const toolInfo = [
   ['spawn', 'Spawn', 'Add a piece'],
   ['delete', 'Delete', 'Remove piece'],
   ['flip', 'Reality flip', 'Swap sides'],
+  ['control', 'Control', 'Command enemy pieces'],
+  ['convert', 'Conversion', 'Turn enemies into allies'],
 ]
 const classicOrder = ['p', 'n', 'b', 'r', 'q', 'k']
 function save() {
@@ -281,14 +284,16 @@ function endAction(reply = false) {
 function travel(from, to, promotion) {
   const p = game.b[from],
     q = game.b[to]
+  if (!p || (mode === 'control' && p.c === game.side)) return
+  const possessed = mode === 'control'
   checkpoint()
   move(game, from, to, promotion)
   recordPly(
     undoStack.at(-1),
-    { from, to, promotion },
+    { from, to, promotion, ...(possessed ? { power: 'control' } : {}) },
     game.side,
     other(game.side),
-    label(p.t) +
+    (possessed ? 'Control · ' : '') + label(p.t) +
       ' ' +
       from +
       (q ? ' × ' : ' → ') +
@@ -296,6 +301,19 @@ function travel(from, to, promotion) {
       (promotion ? ' = ' + label(promotion) : '') +
       (q?.c === p.c ? ' · own capture' : ''),
   )
+  endAction(true)
+}
+function convertAt(sq) {
+  const p = game.b[sq]
+  if (!p || p.c === game.side) {
+    notice = 'Choose an enemy piece to convert to your army.'
+    renderStatus()
+    return
+  }
+  checkpoint()
+  convertPiece(game,sq,game.side)
+  recordPly(undoStack.at(-1),{from:sq,to:sq,power:'convert'},game.side,other(game.side),
+    'Conversion · '+label(p.t)+' on '+sq+' joins '+colorName(game.side))
   endAction(true)
 }
 function selectMode(value) {
@@ -309,6 +327,11 @@ function selectMode(value) {
     mode = 'move'
     endAction()
     return
+  }
+  if (['control','convert'].includes(value) && game.pending) {
+    cancelBot()
+    game.pending = false
+    save()
   }
   mode = value
   resetSelection()
@@ -326,6 +349,7 @@ function actOn(sq) {
     activatePower(selected, sq, powerTarget)
     return
   }
+  if (mode === 'convert') return convertAt(sq)
   if (mode === 'spawn') {
     checkpoint()
     edit(game, sq, { c: spawnColor, t: spawnType })
@@ -347,6 +371,11 @@ function actOn(sq) {
     return
   }
   if (!selected) {
+    if (mode === 'control' && game.b[sq]?.c !== other(game.side)) {
+      notice = 'Choose an enemy piece to control.'
+      renderStatus()
+      return
+    }
     if (game.b[sq]) {
       selected = sq
       notice = ''
@@ -432,7 +461,7 @@ function renderBoard() {
         '" data-sq="' +
         sq +
         '" draggable="' +
-        Boolean(p && mode === 'move' && !game.result) +
+        Boolean(p && !game.result && (mode === 'move' || (mode === 'control' && p.c !== game.side))) +
         '">' +
         (prefs.coords && fi === 0 ? '<span class="coord rank">' + r + '</span>' : '') +
         (p ? pieceArt(p.t, p.c, catalog()) : '') +
@@ -468,7 +497,7 @@ function paintAnnotations() {
 }
 function paintDestinations() {
   const targets = new Set(
-    selected && mode === 'move' && !game.result ? destinations(game, selected, powerTarget) : [],
+    selected && ['move','control'].includes(mode) && !game.result ? destinations(game, selected, powerTarget) : [],
   )
   for (const square of board.children) {
     if (!square.dataset.sq) continue
@@ -479,12 +508,17 @@ function paintDestinations() {
     square.setAttribute('aria-pressed', String(sq === selected))
     square.classList.toggle('move-dot', target && !piece)
     square.classList.toggle('capture-ring', target && !!piece)
+    const eligible = !game.result && !!piece && piece.c !== game.side && (mode === 'convert' || (mode === 'control' && !selected))
+    square.classList.toggle('convert-target', eligible && mode === 'convert')
+    square.classList.toggle('control-target', eligible && mode === 'control')
+    square.classList.toggle('possessed', mode === 'control' && sq === selected)
+
     square.setAttribute(
       'aria-label',
       sq +
         ' · ' +
         (piece ? colorName(piece.c) + ' ' + label(piece.t) : 'empty') +
-        (target ? ' · suggested target' : '') + (square.classList.contains('king-check') ? ' · king under attack' : ''),
+        (eligible ? ' · eligible enemy target' : '') + (target ? ' · suggested target' : '') + (square.classList.contains('king-check') ? ' · king under attack' : ''),
     )
   }
 }
@@ -496,6 +530,10 @@ function renderStatus() {
     notice ||
     (powerTarget
       ? 'Choose a target for ' + abilities[powerTarget] + '.'
+      : mode === 'control'
+        ? selectedPiece ? 'Controlling '+label(selectedPiece.t)+' · choose any destination, even its allies.' : 'Select a highlighted enemy piece to command it for one move.'
+        : mode === 'convert'
+          ? 'Tap a highlighted enemy to permanently change its color to yours.'
       : mode === 'delete'
         ? 'Tap any piece to remove it.'
         : mode === 'spawn'
@@ -542,7 +580,9 @@ function renderStatus() {
         : '') +
       '<button class="power-btn" data-special="transform">' +
       icon('rotate', 16) +
-      'Transform piece</button></div>'
+      'Transform piece</button>' +
+      (selectedPiece.c !== game.side ? '<button class="power-btn quick-convert" data-special="convert">'+icon('convert',16)+'Convert to my side</button>' : '') +
+      '</div>'
     : ''
 }
 function render() {
@@ -830,6 +870,7 @@ function showHelp() {
       'Custom abilities',
       'Select a custom piece and use its ability under the board. Promote a pawn on its far rank, or use Transform piece to change any piece at any time.',
     ],
+    ['Control & Conversion','Control an enemy piece for one move without changing its color, or convert it permanently to your army. Converting the last enemy king wins. Both actions can be undone.'],
     ['Board effects','Red highlights identify attacked kings. Right-click a square to mark it, or right-drag to draw an arrow. Customize board colors and animations in settings.'],
     [
       'Bot turns',
@@ -840,7 +881,7 @@ function showHelp() {
     'How to play',
     '<div class="rules-list">' +
       items.map((v) => '<article><h3>' + v[0] + '</h3><p>' + v[1] + '</p></article>').join('') +
-      '</div><h3 class="section-sub">Keyboard</h3><p class="dialog-note">M move · S spawn · D delete · F reality flip · Esc cancel · Ctrl/⌘ Z undo</p><a class="credit-link" href="credits.html" target="_blank" rel="noopener">Game credits ↗</a>',
+      '</div><h3 class="section-sub">Keyboard</h3><p class="dialog-note">M move · S spawn · D delete · F reality flip · C control · V conversion · Esc cancel · Ctrl/⌘ Z undo</p><a class="credit-link" href="credits.html" target="_blank" rel="noopener">Game credits ↗</a>',
     'help',
   )
 }
@@ -1090,7 +1131,7 @@ board.onclick = (e) => {
 }
 board.ondragstart = (e) => {
   const b = e.target.closest('[data-sq]')
-  if (game.result || !b || mode !== 'move' || !game.b[b.dataset.sq]) {
+  if (game.result || !b || !['move','control'].includes(mode) || !game.b[b.dataset.sq] || (mode==='control' && game.b[b.dataset.sq].c===game.side)) {
     e.preventDefault()
     return
   }
@@ -1103,13 +1144,13 @@ board.ondragstart = (e) => {
   e.dataTransfer.effectAllowed = 'move'
 }
 board.ondragover = (e) => {
-  if (mode === 'move') e.preventDefault()
+  if (['move','control'].includes(mode)) e.preventDefault()
 }
 board.ondrop = (e) => {
   e.preventDefault()
   const from = e.dataTransfer.getData('text/plain'),
     to = e.target.closest('[data-sq]')?.dataset.sq
-  if (mode === 'move' && to && game.b[from]) {
+  if (['move','control'].includes(mode) && to && game.b[from] && (mode!=='control' || game.b[from].c!==game.side)) {
     selected = from
     powerTarget = null
     actOn(to)
@@ -1118,7 +1159,8 @@ board.ondrop = (e) => {
 $('power-area').onclick = (e) => {
   const cmd = e.target.closest('[data-special]')?.dataset.special,
     p = game.b[selected]
-  if (!p || !cmd) return
+  if (!p || !cmd || game.result) return
+  if (cmd === 'convert') return convertAt(selected)
   if (cmd === 'transform') {
     const sq = selected
     piecePicker(
@@ -1207,7 +1249,7 @@ document.onkeydown = (e) => {
     return
   }
   if (e.repeat) return
-  const tool = { m: 'move', s: 'spawn', d: 'delete', f: 'flip' }[k]
+  const tool = { m: 'move', s: 'spawn', d: 'delete', f: 'flip', c:'control', v:'convert' }[k]
   if (tool) selectMode(tool)
 }
 decorate()
