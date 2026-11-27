@@ -1,4 +1,4 @@
-import { orthodox, movement, other } from './game.mjs'
+import { orthodox, movement, other, boardSize } from './game.mjs'
 
 const value = { p: 1, n: 3, b: 3.2, r: 5, q: 9, k: 0 }
 const worth = (piece) => (piece ? (value[piece.t] ?? 6) : 0)
@@ -41,16 +41,16 @@ function exchangeGain(chess, target, depth = 0) {
   return gain
 }
 function newFork(before, after, from, to, actor) {
-  const majorTargets = (board, origin) =>
+  const majorTargets = (board, origin, size) =>
     Object.entries(board)
       .filter(
         ([square, piece]) =>
-          piece.c !== actor && ['k', 'q', 'r'].includes(piece.t) && movement(board, origin, square),
+          piece.c !== actor && ['k', 'q', 'r'].includes(piece.t) && movement(board, origin, square, size),
       )
       .map(([square]) => square)
-  const targets = majorTargets(after.b, to)
+  const targets = majorTargets(after.b, to, boardSize(after))
   if (targets.length < 2) return false
-  const oldTargets = majorTargets(before.b, from)
+  const oldTargets = majorTargets(before.b, from, boardSize(before))
   return targets.some((square) => !oldTargets.includes(square))
 }
 
@@ -62,7 +62,7 @@ export function reviewMove(before, after, action, actor, outcome) {
       return {
         grade: grade(
           'drawn',
-          'The side to move has no legal move and is outside check.',
+          outcome.reason === 'Both kings lost' ? 'Both armies lost their final king.' : 'The side to move has no legal move and is outside check.',
           'Game result',
         ),
       }
@@ -82,14 +82,14 @@ export function reviewMove(before, after, action, actor, outcome) {
   const threatened =
     to &&
     after.b[to]?.c === actor &&
-    Object.entries(after.b).some(([sq, p]) => p.c !== actor && movement(after.b, sq, to))
+    Object.entries(after.b).some(([sq, p]) => p.c !== actor && movement(after.b, sq, to, boardSize(after)))
   const defended =
     threatened &&
     Object.entries(after.b).some(
       ([sq, p]) =>
         sq !== to &&
         p.c === actor &&
-        movement({ ...after.b, [to]: { ...after.b[to], c: other(actor) } }, sq, to),
+        movement({ ...after.b, [to]: { ...after.b[to], c: other(actor) } }, sq, to, boardSize(after)),
     )
   const source = 'Sandbox estimate'
   let quick
@@ -124,7 +124,7 @@ export function reviewMove(before, after, action, actor, outcome) {
       'Sandbox estimate',
     )
   const sandbox = { grade: grade('sandbox', quick.detail, 'Sandbox estimate · ' + grades[quick.key][0]) }
-  if (power || mover.c !== actor) return sandbox
+  if (power || !mover || mover.c !== actor || before.doubleTurn) return sandbox
   const chess = orthodox(before, actor)
   const candidate = chess
     ?.moves({ square: from, verbose: true })
