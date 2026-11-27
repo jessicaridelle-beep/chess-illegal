@@ -47,15 +47,23 @@ export const escapeHtml = (value) =>
     (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c],
   )
 export const names = { p: 'Pawn', n: 'Knight', b: 'Bishop', r: 'Rook', q: 'Queen', k: 'King' }
-export const abilities = { radiance: 'Radiance', exchange: 'Phase swap', leap: 'Star leap' }
+export const abilities = { radiance: 'Radiance', exchange: 'Phase swap', leap: 'Star leap', nova: 'Nova blast', echo: 'Echo spawn', beam: 'Prism beam' }
 export const powers = {
   radiance: 'Turn every enemy on a touching square, including diagonals, to your color.',
   exchange: 'Trade squares with any other piece. Both pieces stay on the board.',
   leap: 'Jump two squares in any direction and convert an enemy at the midpoint.',
+  nova: 'Clear all adjacent enemy pieces, leaving allies untouched.',
+  echo: 'Summon a friendly pawn on a neighboring empty square, except the first or eighth rank.',
+  beam: 'Remove the first enemy along an unobstructed straight line, up to four squares away.',
 }
+const relic = (color, emblem) => 'data:image/svg+xml,' + encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 96 96"><path d="M22 84h52l-5-14-10-9H37l-10 9z" fill="#25252e" stroke="'+color+'" stroke-width="4"/><circle cx="48" cy="38" r="29" fill="#22232d" stroke="'+color+'" stroke-width="4"/><g fill="'+color+'" stroke="#fff" stroke-width="1.5" stroke-linejoin="round">'+emblem+'</g></svg>')
 export const originals = [
   { id: 'illuminator', name: 'Illuminator', art: 'art/illuminator.svg', power: 'radiance' },
   { id: 'phantom', name: 'Phantom', art: 'art/phantom.svg', power: 'exchange' },
+  { id: 'starwalker', name: 'Starwalker', power: 'leap', art: relic('#c3a2ff','<path d="m48 13 7 17 19 2-14 12 4 19-16-10-16 10 4-19-14-12 19-2z"/>') },
+  { id: 'nova', name: 'Nova', power: 'nova', art: relic('#ff885c','<path d="m48 11 5 17 15-10-6 18 18 2-18 7 7 17-16-9-5 18-6-18-15 9 6-17-17-7 18-2-6-18 15 10z"/>') },
+  { id: 'echo', name: 'Echo', power: 'echo', art: relic('#6ce4b5','<circle cx="39" cy="30" r="9"/><path d="M26 54h26l-4-7H30z"/><circle cx="59" cy="37" r="8"/><path d="M49 59h23l-4-7H53z"/>') },
+  { id: 'prism', name: 'Prism', power: 'beam', art: relic('#71d8ff','<path d="m48 15 21 23-21 25-21-25z"/><path d="m48 15 0 48m-21-25h42" fill="none" stroke="#fff" stroke-width="2"/>') },
 ]
 export function pieceArt(type, color, catalog) {
   if (names[type])
