@@ -56,15 +56,12 @@ export function stockfishMove(fen, level, allowed) {
   )
 }
 
-export function compareMove(fen, played) {
-  const go = 'go depth 10 movetime 600'
-  return engineJob(
-    [
-      { fen, go },
-      { fen, go: go + ' searchmoves ' + played },
-    ],
-    20,
-    ([best, actual]) =>
-      best.score && actual.score && actual.move === played ? { best, actual } : null,
+export function compareMove(fen, played, alternatives = []) {
+  const go = 'go depth 16 movetime 1250'
+  const requests = [{fen,go},{fen,go:go+' searchmoves '+played}]
+  const valid = alternatives.filter(m=>/^[a-h][1-8][a-h][1-8][qrbn]?$/.test(m)&&m!==played)
+  if(valid.length) requests.push({fen,go:go+' searchmoves '+valid.join(' ')})
+  return engineJob(requests,20,([best,actual,alternative]) =>
+    best.score && actual.score && actual.move===played ? {best,actual,alternative:alternative?.score?alternative:null}:null
   )
 }
