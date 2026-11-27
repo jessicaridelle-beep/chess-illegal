@@ -75,6 +75,13 @@ export function edit(s, sq, p) {
   else delete s.b[sq]
   s.last = [sq]
 }
+// Conversion retains the piece type, including custom pieces, but changes its army.
+export function convertPiece(s, sq, color = s.side) {
+  const piece = s.b[sq]
+  if (!piece || !['w','b'].includes(color) || piece.c === color) return false
+  edit(s, sq, { ...piece, c: color })
+  return true
+}
 export function move(s, from, to, promotion) {
   const p = s.b[from]
   if (!p || from === to) return
