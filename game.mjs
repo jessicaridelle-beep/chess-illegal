@@ -462,8 +462,11 @@ export function godPower(s,catalog=[]){
     if(!t)continue
     const next=botPosition(t,c,catalog,'guardian')-base
     const exposed=Object.entries(t.b).some(([sq,p])=>p.c!==c&&movement(t.b,sq,a.to,size))
-    const v=next-(exposed?strategicValue(t.b[a.to],catalog):0)
-    const threshold=a.power==='spawn'?.5:4
+    const previouslyExposed=a.power==='sidestep'&&Object.entries(s.b).some(([sq,p])=>p.c!==c&&movement(s.b,sq,a.from,size))
+    const canRetreat=a.power==='sidestep'&&neighbors(a.from,size).some(to=>!s.b[to]&&movement(s.b,a.from,to,size)&&!Object.entries(s.b).some(([sq,p])=>p.c!==c&&movement({...s.b,[to]:s.b[a.from]},sq,to,size)))
+    const escapeBonus=previouslyExposed&&!exposed&&!canRetreat?Math.min(3,strategicValue(s.b[a.from],catalog)*.6):0
+    const v=next+escapeBonus-(exposed?strategicValue(t.b[a.to],catalog):0)
+    const threshold=a.power==='spawn'?.5:1.6
     if(v>threshold&&v>score){best=a;score=v}
   }
   return best
