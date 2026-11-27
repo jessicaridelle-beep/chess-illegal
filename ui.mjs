@@ -1,4 +1,8 @@
 const outlines = {
+  lock:'<rect x="4" y="10" width="16" height="12" rx="3"/><path d="M8 10V6a4 4 0 0 1 8 0v4m-4 5v3"/>',
+  clone:'<rect x="3" y="3" width="13" height="13" rx="2"/><rect x="8" y="8" width="13" height="13" rx="2"/>',
+  immortal:'<path d="M12 2 3 6v6c0 5 5 9 9 10 4-1 9-5 9-10V6zM8 12l3 3 5-6"/>',
+  freeze:'<path d="M12 2v20M3.3 7l17.4 10M3.3 17 20.7 7M8 4l4 4 4-4M8 20l4-4 4 4"/>',
   double: '<path d="m3 5 8 7-8 7zm10 0 8 7-8 7z"/>',
   rewind: '<path d="M3 11a9 9 0 1 1 3 8M3 4v7h7m2-4v5l-4 3"/>',
   hole: '<circle cx="12" cy="12" r="3" fill="currentColor"/><ellipse cx="12" cy="12" rx="11" ry="5" transform="rotate(-35 12 12)"/><path d="M6 4c10-4 17 10 11 15"/>',
