@@ -108,10 +108,27 @@ function renderMateCutaway(layer,match,art){
   for(let i=0;i<3;i++){const ring=node('span','mate-cutaway-ring',target);vars(ring,{'--ring-delay':i*110+'ms'})}
   for(let i=0;i<30;i++){const spark=node('i','mate-cutaway-star',cut);vars(spark,{'--sx':(i*37.31%100)+'%','--sy':(i*61.73%100)+'%','--sd':i%8*55+'ms'})}
 }
+function liveGrade(board,state,entry,grade,{size,view,art,paths}){
+ const great=isGreat(grade),duration=2200,to=entry.fx?.to||entry.sq,point=scenePoint(to,size,view)||{x:50,y:50};
+ const layer=node('div','finale-layer live-grade',board);layer.setAttribute('aria-hidden','true');
+ vars(layer,{'--live-color':great?'#54aaff':'#20e5df','--live-x':point.x+'%','--live-y':point.y+'%','--live-size':size});
+ const camera=node('div','live-grade-camera',layer);
+ for(let row=0;row<size;row++)for(let col=0;col<size;col++){
+ const file=view==='b'?size-1-col:col,rank=view==='b'?row+1:size-row,sq=String.fromCharCode(97+file)+rank,p=state.b[sq];
+ const cell=node('div','live-grade-cell'+((file+rank)%2?' dark':'')+(sq===to?' hero':'')+(sq===entry.fx?.from?' origin':'')+((paths?.threat||[]).includes(sq)?' danger':''),camera);
+ if(p){const piece=node('div','live-grade-piece',cell);piece.innerHTML=art(p.t,p.c)}
+ if(sq===to){const badge=node('b','live-grade-mark',cell);badge.textContent=great?'!':'!!'}
+ }
+ const ns='http://www.w3.org/2000/svg',svg=document.createElementNS(ns,'svg');svg.setAttribute('viewBox','0 0 100 100');svg.setAttribute('class','live-grade-lines');
+ for(const link of (paths?.links||[]).filter(l=>l.kind==='threat').slice(0,3)){const p=scenePoint(link.from,size,view),q=scenePoint(link.to,size,view);if(!p||!q)continue;const line=document.createElementNS(ns,'path');line.setAttribute('d','M '+p.x+' '+p.y+' L '+q.x+' '+q.y);line.setAttribute('pathLength','1');svg.append(line)}camera.append(svg);
+ const flash=node('div','live-grade-flash',layer);node('div','live-grade-vignette',layer);
+ setTimeout(()=>layer.remove(),duration);return duration
+}
 export function playFinale(board,state,entry,grade,{size,view,art,attack,paths,preview=false}){
   const mate=isMate(state.result),brilliant=isBrilliant(grade),great=isGreat(grade)
   if((!mate&&!brilliant&&!great)||globalThis.matchMedia?.('(prefers-reduced-motion: reduce)').matches)return 0
   board.querySelector('.finale-layer')?.remove()
+  if(!mate)return liveGrade(board,state,entry,grade,{size,view,art,paths})
   const winner=mate?state.result.winner:entry.actor
   const origin=entry?.fx?.from,to=entry?.fx?.to||entry?.sq
   const point=scenePoint(to,size,view)||{x:50,y:50}

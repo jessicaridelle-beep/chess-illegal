@@ -3,7 +3,7 @@ import {initReferenceArt} from './reference-art.mjs?v=cinema-39'
 import { promotedPiece, playPromotion, startPromotionAftermath, clearPromotionAftermath, syncPromotionAftermath } from './promotion.mjs?v=cinema-40'
 import { initMusic } from './music.mjs?v=music-40'
 import { actionHold, delayForPresentation, extendPresentation, preparedRatingMatches } from './presentation.mjs?v=tempo-28'
-import { isMate, isBrilliant, isGreat, canPlayFinale, playFinale } from './finale.mjs?v=cinema-39'
+import { isMate, isBrilliant, isGreat, canPlayFinale, playFinale } from './finale.mjs?v=cinema-46'
 import { paintEditPaths, clearEditPaths, burstEdit, editPaths, syncBadgeTint, tacticalTrails, geometryAttack } from './editfx.mjs?v=impact-41'
 import { describeEffect, effectDuration, unlockSound, playEffectSound, renderEffects, playFinaleSound, playPromotionSound } from './effects.mjs?v=cinema-39'
 import { icon, names, abilities, powers, originals, pieceArt, pieceAbilities, movementDescription, passiveAbilities, areaAbilities, escapeHtml as esc } from './ui.mjs?v=boss-11'
@@ -494,7 +494,7 @@ function paintReview(){
   if(pulse&&latest&&!globalThis.matchMedia?.('(prefers-reduced-motion: reduce)').matches)lockPresentation(1000)
   const editOn=prefs.editGlow&&prefs.effects&&latest
   if(editOn)paintEditPaths(board,game,marked,d,(from,to)=>movement(game.b,from,to,boardSize(game),game.destroyed||[],true))
-  const doBurst=()=>{if(editOn&&prefs.cinematic&&lastEditBurst!==marked.id){lastEditBurst=marked.id;burstEdit(board,marked,d,effect)}}
+  const doBurst=()=>{if(editOn&&prefs.cinematic&&lastEditBurst!==marked.id){lastEditBurst=marked.id;if(!isBrilliant(d)&&!isGreat(d))burstEdit(board,marked,d,effect)}}
   if(!marked.sq&&marked.fx.power){board.insertAdjacentHTML('beforeend','<div data-badge-id="'+esc(marked.id)+'" class="grade-global grade-'+d.key+' badge-effect-'+effect+(pulse?' grade-global-pulse':'')+'"><b>'+gradeGlyph(d)+'</b><span>'+esc(d.title)+'</span></div>');doBurst();updateBadgeTint(marked);return}
   for(const target of gradeSquares(marked)){
     const square=board.querySelector('[data-sq="'+target.sq+'"]')
