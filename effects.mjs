@@ -143,3 +143,8 @@ export function playFinaleSound(mate){
     return true
   }catch{return false}
 }
+
+export function playPromotionSound(){
+  const a=unlockSound();if(!a)return false
+  try{const t=a.currentTime+.015;tone(a,t,110,440,.65,.065,'sine');tone(a,t+.35,330,880,.4,.045,'triangle');noise(a,t+.78,.18,.07,3500);tone(a,t+.78,150,55,.28,.10,'sine');[392,523.25,659.25,783.99].forEach((hz,i)=>tone(a,t+.83+i*.10,hz,hz,.45,.05,'triangle'));return true}catch{return false}
+}

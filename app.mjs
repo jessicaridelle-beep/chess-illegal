@@ -1,8 +1,9 @@
+import { promotedPiece, playPromotion } from './promotion.mjs?v=promo-35'
 import { initMusic } from './music.mjs?v=music-31'
 import { actionHold, delayForPresentation, extendPresentation, preparedRatingMatches } from './presentation.mjs?v=tempo-28'
 import { isMate, isBrilliant, isGreat, canPlayFinale, playFinale } from './finale.mjs?v=impact-34'
 import { paintEditPaths, clearEditPaths, burstEdit, editPaths, syncBadgeTint, tacticalTrails, geometryAttack } from './editfx.mjs?v=impact-34'
-import { describeEffect, effectDuration, unlockSound, playEffectSound, renderEffects, playFinaleSound } from './effects.mjs?v=sky-33'
+import { describeEffect, effectDuration, unlockSound, playEffectSound, renderEffects, playFinaleSound, playPromotionSound } from './effects.mjs?v=promo-35'
 import { icon, names, abilities, powers, originals, pieceArt, pieceAbilities, movementDescription, passiveAbilities, areaAbilities, escapeHtml as esc } from './ui.mjs?v=boss-11'
 import {
   fresh,
@@ -70,6 +71,7 @@ let mode = 'move',
   storageIssue = false
 let lastGradePulse=null,lastEditBurst=game.logs.at(-1)?.id
 let lastFinale=game.logs.at(-1)?.id,finaleUntil=0,finaleResultTimer=null
+let lastPromotion=game.logs.at(-1)?.id,promotionTimer=null,promotionActive=null
 let presentationUntil=0,presentationTimer=null
 let lastAnimated = game.logs.at(-1)?.id, annotations = [], arrowStart = null, revealed = new Set(game.logs.filter(x=>!x.search).map(x=>x.id))
 const catalog = () => [...originals, ...custom]
@@ -122,6 +124,7 @@ function lockPresentation(duration){
   board.dataset.presenting='true'
 }
 function resetPresentation(){
+  clearTimeout(promotionTimer);promotionActive?.remove();promotionActive=null
   presentationUntil=finaleUntil=0;clearTimeout(presentationTimer);clearTimeout(finaleResultTimer);board.dataset.presenting='false';board.querySelector('.finale-layer')?.remove()
 }
 function renderDuel(){
@@ -338,6 +341,7 @@ function annotateAction(entry,before,action,actor,assessment=reviewAction(before
   const sq=action.to||action.from||null
   if(action.hunterGrade?.key==='brilliant'&&assessment.search&&assessment.legality?.kind==='legal')assessment={grade:action.hunterGrade,legality:assessment.legality}
   Object.assign(entry,assessment,{id:crypto.randomUUID(),sq,actor,fx:describeEffect(before,game,action,assessment.legality?.kind)})
+  entry.fx.promoted=promotedPiece(before,game,action)
   if(preparedRatingMatches(prepared,entry.search))finishRating(entry,prepared.grade)
   if(entry.search){const cached=getCachedComparison(entry.search.fen,entry.search.played,entry.search.alternatives);if(cached)finishRating(entry,engineGrade(entry.search,cached))}
   lockBadge(entry)
@@ -353,13 +357,45 @@ function gradeChip(entry){
   return '<span class="grade-chip grade-'+d.key+'"><i>'+d.mark+'</i>'+esc(d.title)+(d.estimated?' · estimate':'')+'</span>'
 }
 
+function startPromotion(piece,id,preview=false){
+  const result=playPromotion(document.body,piece,{art:(t,c)=>pieceArt(t,c,catalog()),label,preview,reduced:!!globalThis.matchMedia?.('(prefers-reduced-motion: reduce)').matches})
+  if(!result)return false
+  promotionActive=result.scene
+  if(!preview)lastPromotion=id
+  finaleUntil=Date.now()+result.duration
+  lockPresentation(result.duration+100)
+  if(prefs.sound)playPromotionSound()
+  clearTimeout(promotionTimer)
+  promotionTimer=setTimeout(()=>{
+    result.scene.remove()
+    if(promotionActive!==result.scene)return
+    promotionActive=null
+    if(!preview&&game.logs.at(-1)?.id===id){
+      maybeFinale(game.logs.at(-1))
+      if(game.result)showResultAfterFinale()
+      else if(game.duel&&duelRunning)scheduleDuel()
+      else if(!game.duel&&game.pending&&!engine)scheduleBot()
+    }
+  },result.duration)
+  return true
+}
 function maybeFinale(entry=game.logs.at(-1)){
-  if(!entry?.id||lastFinale===entry.id)return
+  if(!entry?.id||promotionActive)return
+  if(entry.fx?.promoted&&lastPromotion!==entry.id&&prefs.effects&&prefs.cinematic){
+    if(startPromotion(entry.fx.promoted,entry.id))return
+  }
+  if(lastFinale===entry.id)return
   const grade=displayGrade(entry),mate=isMate(game.result)
   if(!canPlayFinale(entry,grade,game.result,prefs))return
   const attack=(from,to)=>movement(game.b,from,to,boardSize(game),game.destroyed||[],true)
   const duration=playFinale(board,game,entry,grade,{size:boardSize(game),view:game.view,art:(t,c)=>pieceArt(t,c,catalog()),attack,paths:{...editPaths(game,entry,attack),links:entry.tactical||tacticalTrails(null,game,entry,(s,x,y,support)=>geometryAttack(s,x,y,support,movement))}})
   if(duration){lastFinale=entry.id;finaleUntil=Date.now()+duration;lockPresentation(duration+40);if(prefs.sound)playFinaleSound(mate)}
+}
+function previewPromotion(type){
+  if(duelBusy||game.pending||waitingForRating(game.logs.at(-1))||promotionActive||Date.now()<finaleUntil){$('preview-status').textContent='Wait for the current move to finish.';return}
+  if(game.duel)pauseDuel()
+  startPromotion({t:type,c:game.view},'preview-promotion',true)
+  $('preview-status').textContent='Promotion preview only; your game is unchanged.'
 }
 function previewFinale(mate=false,great=false){
   if(duelBusy||game.pending||waitingForRating(game.logs.at(-1))||Date.now()<finaleUntil){$('preview-status').textContent='Wait for the current move to finish.';return}
@@ -1062,7 +1098,7 @@ function restore(direction) {
   annotations = []
   destination.push(clone(game))
   game = source.pop()
-  lastAnimated=lastSounded=lastEditBurst=lastFinale=game.logs.at(-1)?.id
+  lastAnimated=lastSounded=lastEditBurst=lastFinale=lastPromotion=game.logs.at(-1)?.id
   resetPresentation()
   if(!game.realityTimeline)beginRealityTimeline(game)
   if(game.duel){game.pending=false;duelRunning=false;duelBusy=false}
@@ -1585,6 +1621,7 @@ initMusic($('music-panel'))
 $('preview-brilliant').onclick=()=>previewFinale(false)
 $('preview-great').onclick=()=>previewFinale(false,true)
 $('preview-mate').onclick=()=>previewFinale(true)
+document.querySelectorAll('[data-preview-promotion]').forEach(b=>b.onclick=()=>previewPromotion(b.dataset.previewPromotion))
 render()
 setInterval(updateFlipCooldown,250)
 reviewQueue()
