@@ -20,9 +20,9 @@ import {
   threatenedKings,
   convertPiece,
   boardSize, boardFiles, boardRanks, allSquares, expandBoard, blackHole, xy, legalBotTrial, sandboxNoMove, clonePiece, toggleImmortality, freezeBot, toggleRealityLock, consumeBotFreeze, godTrial, godPower,
-} from './game.mjs?v=tracker-16'
-import { stockfishMove, compareMove, brilliantHunterMove, preanalyzePosition, analysisStats, getCachedComparison } from './engine.mjs?v=parallel-21'
-import { grades, reviewAction, engineGrade, displayGrade, latestBoardGrade, gradeSquares, trackerSummary, nextTrackerReview, classifyAction, lockBadge, badgeEffect, badgePulseKey, waitingForRating, finishRating } from './review.mjs?v=review-20'
+} from './game.mjs?v=mate-22'
+import { stockfishMove, compareMove, brilliantHunterMove, preanalyzePosition, analysisStats, getCachedComparison } from './engine.mjs?v=mate-22'
+import { grades, reviewAction, engineGrade, displayGrade, latestBoardGrade, gradeSquares, trackerSummary, nextTrackerReview, classifyAction, lockBadge, badgeEffect, badgePulseKey, waitingForRating, finishRating } from './review.mjs?v=mate-22'
 const $ = (id) => document.getElementById(id),
   modal = $('modal'),
   board = $('board')
@@ -74,7 +74,7 @@ const duelName=c=>duelProfile(c)[0]
 const duelOptions=()=>Object.entries(botProfiles).map(([id,p])=>[id,p[0]+' · '+(isBoss(id)||isHunter(id)?p[2]:p[2]+' est. Elo')])
 function duelKey(s,turn){return JSON.stringify([turn,s.rights,s.ep,s.size,(s.destroyed||[]).slice().sort(),Object.entries(s.b).sort(([a],[b])=>a.localeCompare(b))])}
 function duelAfter(s,turn,actor,action,before){
-  if(isBoss(s.duel?.[actor]))return bossInfo(s,actor).turns>=BOSS_GRACE?bossOutcome(s,actor,catalog()):null
+  if(isBoss(s.duel?.[actor]))return bossInfo(s,actor).turns>=BOSS_GRACE?bossOutcome(s,actor,catalog(),action,before):null
   if(isBoss(s.duel?.[turn])&&bossInfo(s,turn).immune&&bossHasRoyal(s,turn))return null
   const has=c=>Object.values(s.b).some(p=>p.c===c&&(p.t==='k'||p.t==='godking'||p.royal))
   if(!has(turn)&&has(actor))return {winner:actor,reason:'Last king taken'}
@@ -139,7 +139,8 @@ async function duelStep(){
     const safe=isBoss(id)?(action&&canBossRepeat(game,actor,bossActionKind(action))?bossResult?.state:null):action&&legalBotTrial(sim,action,actor,[])
     if(!safe){
       if(isBoss(id)&&bossInfo(game,actor).turns<BOSS_GRACE){d.turn=other(actor);log('Grace period · no allowed move',source);return}
-      game.result=ch?.isCheckmate()?{winner:other(actor),reason:'Checkmate'}:ch?.isStalemate()?{winner:null,reason:'Stalemate'}:sandboxNoMove(sim,[],actor)||{winner:null,reason:'No legal move'}
+      // A boss cannot win merely because the opposing bot has no available action.
+      game.result=isBoss(d[other(actor)])?{winner:null,reason:'No available action · no legal boss checkmate'}:ch?.isCheckmate()?{winner:other(actor),reason:'Checkmate'}:ch?.isStalemate()?{winner:null,reason:'Stalemate'}:sandboxNoMove(sim,[],actor)||{winner:null,reason:'No legal move'}
       duelRunning=false;return
     }
     undoStack.push(before);if(undoStack.length>60)undoStack.shift();redoStack=[]
@@ -159,7 +160,7 @@ async function duelStep(){
 function duelDialog(){
   pauseDuel();renderStatus()
   const old=game.duel
-  dialog('Bot vs Bot','<p class="dialog-copy">Choose either bot for either color. Ordinary bots use normal moves. OWNER and Illegal Stockfish can use every sandbox power and cannot finish a game before their seventh move. Flip protection: only surviving pieces switch sides; boss rewinds cannot cross a flip or restore an older match. Anti-spam v3: at most three special powers in any five completed actions; actual piece moves are required between bursts. Black Hole has a shared 20-second cooldown and eight intervening actions. Illegal moves, delete and spawn retain their three-use caps. Pause to edit the board with sandbox tools.</p><label class="form-field">White bot<select id="duel-w">'+selectOptions(duelOptions(),old?.w||'fish')+'</select></label><label class="form-field">Black bot<select id="duel-b">'+selectOptions(duelOptions(),old?.b||'fishmax')+'</select></label><label class="form-field">Move delay<select id="duel-delay">'+selectOptions([['150','Fast'],['500','Normal'],['1200','Slow'],['2500','Very slow']],String(old?.delay||500))+'</select></label><label class="check-row"><input id="duel-current" type="checkbox" '+(old?'checked':'')+'> Use current board (keep custom pieces)</label><label class="form-field">Side to move on current board<select id="duel-turn">'+selectOptions([['w','White'],['b','Black']],old?.turn||'w')+'</select></label><label class="check-row"><input id="duel-marks" type="checkbox" '+(prefs.marks?'checked':'')+'> On-board move rating badges</label><label class="check-row"><input id="duel-cinematic" type="checkbox" '+(prefs.cinematic?'checked':'')+'> Cinematic move effects</label><label class="form-field">Board theme<select id="duel-theme">'+selectOptions([['green','Classic green'],['wood','Warm wood'],['blue','Midnight blue'],['mono','Monochrome'],['editgray','Chess edits · grayscale']],prefs.theme)+'</select></label><p class="dialog-note">Brilliant Hunter can play either color and searches for engine-supported sacrifices on standard boards. Ratings are illustrative difficulty labels, not measured Elo. Stockfish variants use the bundled engine on compatible boards; other profiles use the sandbox engine.</p><div class="dialog-actions"><button class="secondary" id="duel-cancel">Cancel</button><button class="primary" id="duel-start">Start match</button></div>','duel')
+  dialog('Bot vs Bot','<p class="dialog-copy">Choose either bot for either color. Ordinary bots use normal moves. OWNER and Illegal Stockfish can use every sandbox power, but cannot take or erase the opponent’s last king. After their seventh move they may win only with a legal checkmate, including custom-piece movement dots. Active powers cannot deliver the final mate. Flip protection: only surviving pieces switch sides; boss rewinds cannot cross a flip or restore an older match. Anti-spam v3: at most three special powers in any five completed actions; actual piece moves are required between bursts. Black Hole has a shared 20-second cooldown and eight intervening actions. Illegal moves, delete and spawn retain their three-use caps. Pause to edit the board with sandbox tools.</p><label class="form-field">White bot<select id="duel-w">'+selectOptions(duelOptions(),old?.w||'fish')+'</select></label><label class="form-field">Black bot<select id="duel-b">'+selectOptions(duelOptions(),old?.b||'fishmax')+'</select></label><label class="form-field">Move delay<select id="duel-delay">'+selectOptions([['150','Fast'],['500','Normal'],['1200','Slow'],['2500','Very slow']],String(old?.delay||500))+'</select></label><label class="check-row"><input id="duel-current" type="checkbox" '+(old?'checked':'')+'> Use current board (keep custom pieces)</label><label class="form-field">Side to move on current board<select id="duel-turn">'+selectOptions([['w','White'],['b','Black']],old?.turn||'w')+'</select></label><label class="check-row"><input id="duel-marks" type="checkbox" '+(prefs.marks?'checked':'')+'> On-board move rating badges</label><label class="check-row"><input id="duel-cinematic" type="checkbox" '+(prefs.cinematic?'checked':'')+'> Cinematic move effects</label><label class="form-field">Board theme<select id="duel-theme">'+selectOptions([['green','Classic green'],['wood','Warm wood'],['blue','Midnight blue'],['mono','Monochrome'],['editgray','Chess edits · grayscale']],prefs.theme)+'</select></label><p class="dialog-note">Brilliant Hunter can play either color and searches for engine-supported sacrifices on standard boards. Ratings are illustrative difficulty labels, not measured Elo. Stockfish variants use the bundled engine on compatible boards; other profiles use the sandbox engine.</p><div class="dialog-actions"><button class="secondary" id="duel-cancel">Cancel</button><button class="primary" id="duel-start">Start match</button></div>','duel')
   $('duel-cancel').onclick=()=>modal.close()
   $('duel-start').onclick=()=>{
     const keep=$('duel-current').checked,w=$('duel-w').value,b=$('duel-b').value,delay=Number($('duel-delay').value),turn=keep?$('duel-turn').value:'w'
@@ -941,7 +942,7 @@ async function bossTurn(token){
   const action=chosen.action
   Object.assign(game,chosen.state)
   const count=bossInfo(game,actor).turns
-  game.result=count>=BOSS_GRACE?bossOutcome(game,actor,catalog()):null
+  game.result=count>=BOSS_GRACE?bossOutcome(game,actor,catalog(),action,before):null
   const entry=log(bossDescription(action,before,actor),botTitle()+(id==='illegal'&&suggestion?' · Stockfish-assisted':''))
   annotateAction(entry,before,action,actor)
   const extra=action.power==='double'||bossConsumeFreeze(game,game.side)

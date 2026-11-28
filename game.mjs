@@ -557,17 +557,58 @@ export const bossHasRoyal=(s,c)=>Object.values(s.b).some(p=>p.c===c&&isRoyal(p))
 function bossMeta(s,c,changes){s.bossState={...s.bossState,[c]:{...bossInfo(s,c),...changes}}}
 export function bossConsumeFreeze(s,c){const m=bossInfo(s,c);if(!m.freeze)return false;bossMeta(s,c,{freeze:m.freeze-1});return true}
 export function bossConsumeLock(s,c){const m=bossInfo(s,c);if(m.lock)bossMeta(s,c,{lock:m.lock-1})}
-export function bossOutcome(s,c,catalog=originals){
-  const enemy=other(c)
-  if(!bossHasRoyal(s,enemy))return {winner:c,reason:'Last king taken'}
-  if(bossInfo(s,enemy).immune)return null
-  const ch=orthodox(s,enemy)
-  if(ch?.isCheckmate())return {winner:c,reason:'Checkmate'}
-  if(!ch){
-    const t={...s,side:c,duelMode:false}
-    if(threatenedKings(t,catalog).some(sq=>t.b[sq].c===enemy)&&!botCandidates(t,enemy,catalog).some(a=>legalBotTrial(t,a,enemy,catalog,null)))return {winner:c,reason:'Sandbox checkmate'}
+// Bosses may finish only by movement-based checkmate. Active powers never count as legal moves.
+function bossMovementChecks(s,color){
+  const entries=Object.entries(s.b),opponents=entries.filter(([,p])=>p.c!==color)
+  return entries.filter(([sq,p])=>p.c===color&&isRoyal(p)&&!isDivine(p)&&!p.immortal&&opponents.some(([from])=>movement(s.b,from,sq,boardSize(s),s.destroyed||[],true))).map(([sq])=>sq)
+}
+function bossLegalCandidates(s,c){
+  const ch=orthodox(s,c)
+  if(ch)return ch.moves({verbose:true}).map(m=>({from:m.from,to:m.to,promotion:m.promotion,normal:true}))
+  const out=[],size=boardSize(s),squares=allSquares(s)
+  for(const [from,p] of Object.entries(s.b))if(p.c===c)for(const to of squares){
+    if(!movement(s.b,from,to,size,s.destroyed||[],true)||isRoyal(s.b[to])||s.b[to]?.immortal)continue
+    if(p.t==='p'&&Number(to.slice(1))===(c==='w'?size:1))for(const promotion of ['q','r','b','n'])out.push({from,to,promotion,normal:true})
+    else out.push({from,to,normal:true})
   }
-  return null
+  return out
+}
+export function bossLegalMove(s,a,c){
+  if(!a||a.power||a.double||s.b[a.from]?.c!==c||isRoyal(s.b[a.to])||s.b[a.to]?.immortal||isDivine(s.b[a.to]))return null
+  const p=s.b[a.from],ch=orthodox(s,c)
+  if(ch){
+    if(!ch.moves({square:a.from,verbose:true}).some(m=>m.to===a.to&&m.promotion===a.promotion))return null
+  }else{
+    if(!movement(s.b,a.from,a.to,boardSize(s),s.destroyed||[],true))return null
+    const promotes=p.t==='p'&&Number(a.to.slice(1))===(c==='w'?boardSize(s):1)
+    if(promotes?!['q','r','b','n'].includes(a.promotion):!!a.promotion)return null
+  }
+  const trial={...s,b:{...s.b},side:c,last:[]}
+  if(!move(trial,a.from,a.to,a.promotion)||bossMovementChecks(trial,c).length)return null
+  trial.side=s.side
+  return trial
+}
+export function bossMatePosition(s,c){
+  const enemy=other(c),royals=Object.values(s.b).filter(p=>p.c===enemy&&isRoyal(p))
+  if(!royals.length||royals.some(p=>isDivine(p)||p.immortal)||bossInfo(s,enemy).immune||(s.checkmateImmunity&&s.side===enemy))return false
+  const checks=bossMovementChecks(s,enemy)
+  if(!checks.length)return false
+  const ch=orthodox(s,enemy)
+  if(ch)return ch.isCheckmate()
+  // With multiple royals, a surviving unchecked royal prevents a final checkmate.
+  if(checks.length!==royals.length)return false
+  for(const reply of bossLegalCandidates(s,enemy))if(bossLegalMove(s,reply,enemy))return false
+  return true
+}
+function sameBossBoard(a,b){
+  const keys=Object.keys(a.b)
+  return keys.length===Object.keys(b.b).length&&keys.every(sq=>JSON.stringify(a.b[sq])===JSON.stringify(b.b[sq]))
+}
+export function bossOutcome(s,c,catalog=originals,action=null,before=null){
+  if(!before||!action||!bossMatePosition(s,c))return null
+  const legal=bossLegalMove(before,action,c)
+  if(!legal||!sameBossBoard(legal,s))return null
+  return {winner:c,reason:orthodox(s,other(c))?'Checkmate':'Sandbox checkmate'}
 }
 function bossMove(s,from,to,promotion){
   const p=s.b[from],victim=s.b[to]
@@ -584,8 +625,8 @@ export function bossTrial(s,a,c,id,catalog=originals,history=[]){
   const enemy=other(c),m=bossInfo(s,c),n=copy(s),oldSide=s.side,p=s.b[a.from],q=s.b[a.to]
   n.side=c;n.duelMode=false
   if(m.lock&&a.power)return null
-  if(kind==='legal'){const trial=legalBotTrial({...n,side:enemy,duelMode:true},a,c,catalog);if(!trial)return null;Object.assign(n,trial);n.side=c;n.duelMode=false}
-  else if(kind==='move'){if(p?.c!==c||!bossMove(n,a.from,a.to,a.promotion))return null}
+  if(kind==='legal'){const trial=bossLegalMove(n,a,c);if(!trial)return null;Object.assign(n,trial);n.side=c;n.duelMode=false}
+  else if(kind==='move'){if(p?.c!==c)return null;const legal=bossLegalMove(n,a,c);if(legal){Object.assign(n,legal);n.side=c;n.duelMode=false}else if(!bossMove(n,a.from,a.to,a.promotion))return null}
   else if(kind==='control'){if(p?.c!==enemy||!bossMove(n,a.from,a.to,a.promotion))return null}
   else if(kind==='spawn'){if(!allSquares(n).includes(a.to)||q||!([...standardTypes,...catalog.map(x=>x.id)].includes(a.type)))return null;edit(n,a.to,{c,t:a.type,...(a.type==='godking'?{immortal:true}:{})})}
   else if(kind==='delete'){if(!q||q.c!==enemy||!edit(n,a.to,null))return null}
@@ -604,11 +645,12 @@ export function bossTrial(s,a,c,id,catalog=originals,history=[]){
   else if(kind==='immunity'){if(m.immune)return null;bossMeta(n,c,{immune:true});n.last=[]}
   else if(kind==='transform'){if(q?.c!==c||isDivine(q)||!catalog.some(x=>x.id===a.type))return null;if(!edit(n,a.to,{c,t:a.type,...(a.type==='godking'?{immortal:true}:{})}))return null}
   else {if(!usePower(n,a.from,a.to,kind,catalog))return null}
-  if(!bossHasRoyal(n,c))return null
+  // Never erase either side's last royal by capture, conversion, deletion, rewind or any power.
+  if(!bossHasRoyal(n,c)||!bossHasRoyal(n,enemy))return null
   const turns=m.turns+1
-  // Before the seventh completed boss action, neither capture of the last royal nor a checking move is allowed.
-  if(turns<BOSS_GRACE&&(!bossHasRoyal(n,enemy)||threatenedKings(n,catalog).some(sq=>n.b[sq].c===enemy)))return null
-  if(turns<BOSS_GRACE){const ch=orthodox(n,enemy);if(ch?.isCheckmate())return null}
+  if(turns<BOSS_GRACE&&threatenedKings(n,catalog).some(sq=>n.b[sq].c===enemy))return null
+  // A power or off-dot move may give check, but may not create the final checkmate.
+  if(bossMatePosition(n,c)&&(turns<BOSS_GRACE||!bossOutcome(n,c,catalog,a,s)))return null
   bossMeta(n,c,{turns,extra:kind==='double',last:kind,streak:m.last===kind?(m.streak||1)+1:1,recent:[...(m.recent||[]),kind].slice(-16),used:{...m.used,[kind]:(m.used?.[kind]||0)+1},lock:Math.max(0,m.lock-1)})
   markBossStreak(n,kind)
   markRealityAction(n,kind)
@@ -623,7 +665,17 @@ export function bossReply(s,c,id,catalog=originals,history=[],suggested=null){
   const initial=scoreBoard(s.b),bias=kind=>1.3/(1+(m.used?.[kind]||0))
   const add=(action,score=0)=>{const kind=bossActionKind(action);if(canBossRepeat(s,c,kind))a.push({action,score:score+bias(kind)+Math.random()*.15})}
   if(suggested)add({from:suggested.from,to:suggested.to,promotion:suggested.promotion,normal:true},4+val(s.b[suggested.to]))
-  {for(const action of botCandidates(s,c,catalog))add({...action,normal:true},val(s.b[action.to])*.8+near(action.to)-near(action.from))}
+  const legalCandidates=bossLegalCandidates(s,c)
+  // Look at every legal destination for an immediate mate, including inherited custom movement.
+  if(m.turns+1>=BOSS_GRACE){
+    for(const action of legalCandidates){
+      const legal=bossLegalMove(s,action,c)
+      if(!legal||!bossMatePosition(legal,c))continue
+      const t=bossTrial(s,action,c,id,catalog,history)
+      if(t&&bossOutcome(t,c,catalog,action,s))return {action,state:t}
+    }
+  }
+  {for(const action of legalCandidates)add(action,val(s.b[action.to])*.8+near(action.to)-near(action.from))}
   for(const [from,p] of own){
     for(const to of squares){if(to===from||s.b[to]?.c===c||isDivine(s.b[to]))continue;const victim=s.b[to],promotion=p.t==='p'&&Number(to.slice(1))===(c==='w'?boardSize(s):1)?'q':undefined
       add({from,to,promotion},val(victim)*.9+near(to)-near(from)+(promotion?6:0))}
@@ -669,7 +721,7 @@ export function bossReply(s,c,id,catalog=originals,history=[],suggested=null){
     if(item.action.power==='immunity'||item.action.power==='lock'||item.action.power==='freeze'||item.action.power==='double')score+=1
     if(id==='owner')score+=item.action.power?1.5:0
     if(id==='illegal'&&suggested&&item.action.from===suggested.from&&item.action.to===suggested.to&&!item.action.power)score+=2
-    if(m.turns+1>=BOSS_GRACE&&!bossHasRoyal(t,enemy))score+=1000
+    if(m.turns+1>=BOSS_GRACE&&bossOutcome(t,c,catalog,item.action,s))score+=1000
     if(score>bestScore){best={action:item.action,state:t};bestScore=score}
     checked++
   }
@@ -677,6 +729,6 @@ export function bossReply(s,c,id,catalog=originals,history=[],suggested=null){
   // Exhaust the remaining candidates if the grace filter rejected the top choices.
   for(const item of a){const t=bossTrial(s,item.action,c,id,catalog,history);if(t)return {action:item.action,state:t}}
   // Legal chess is always an available fallback if the position permits it.
-  for(const candidate of botCandidates(s,c,catalog)){const action={...candidate,normal:true},t=bossTrial(s,action,c,id,catalog,history);if(t)return {action,state:t}}
+  for(const action of legalCandidates){const t=bossTrial(s,action,c,id,catalog,history);if(t)return {action,state:t}}
   return null
 }
