@@ -20,9 +20,9 @@ import {
   threatenedKings,
   convertPiece,
   boardSize, boardFiles, boardRanks, allSquares, expandBoard, blackHole, xy, legalBotTrial, sandboxNoMove, clonePiece, toggleImmortality, freezeBot, toggleRealityLock, consumeBotFreeze, godTrial, godPower,
-} from './game.mjs?v=boss-11'
-import { stockfishMove, compareMove, brilliantHunterMove } from './engine.mjs?v=hunter-15'
-import { grades, reviewAction, engineGrade, displayGrade, latestBoardGrade, gradeSquares } from './review.mjs?v=hunter-15'
+} from './game.mjs?v=tracker-16'
+import { stockfishMove, compareMove, brilliantHunterMove } from './engine.mjs?v=tracker-16'
+import { grades, reviewAction, engineGrade, displayGrade, latestBoardGrade, gradeSquares, trackerSummary, nextTrackerReview, classifyAction } from './review.mjs?v=tracker-16'
 const $ = (id) => document.getElementById(id),
   modal = $('modal'),
   board = $('board')
@@ -149,7 +149,7 @@ async function duelStep(){
     if(!isBoss(id))bossConsumeLock(game,actor)
     d.turn=next;d.plies=(d.plies||0)+1
     game.result=duelAfter(game,next,actor,action,before)
-    const entry=log(colorName(actor)+' · '+(action.power||isBoss(id)&&!action.normal?bossDescription(action):label(before.b[action.from]?.t)+' '+action.from+(before.b[action.to]?' × ':' → ')+action.to+(action.promotion?' = '+label(action.promotion):'')),source)
+    const entry=log(colorName(actor)+' · '+(action.power||isBoss(id)&&!action.normal?bossDescription(action,before,actor):label(before.b[action.from]?.t)+' '+action.from+(before.b[action.to]?' × ':' → ')+action.to+(action.promotion?' = '+label(action.promotion):'')),source)
     annotateAction(entry,before,action,actor)
     resetSelection()
     if(game.result)duelRunning=false
@@ -241,13 +241,13 @@ function log(text, by = 'You') {
 let activeReview = null
 async function reviewQueue() {
   if (activeReview) return
-  const next = [...game.logs].reverse().find((entry) => entry.search)
+  const next = nextTrackerReview(game.logs)
   if (!next) return
   const { id, search } = next
   activeReview = compareMove(search.fen, search.played, search.alternatives)
   try {
     const answer = await activeReview.result
-    const finalGrade = answer ? engineGrade(search, answer) : {key:'sandbox',detail:'Engine review unavailable. No verified rating.',source:'Unverified estimate'}
+    const finalGrade = answer ? engineGrade(search, answer) : {...next.grade,detail:next.grade.detail+' Engine review unavailable; this remains an estimate.',source:'Sandbox estimate · engine unavailable'}
     for (const snapshot of [game, ...undoStack, ...redoStack]) {
       const entry = snapshot.logs.find((item) => item.id === id)
       if (entry) {
@@ -275,9 +275,8 @@ function recordPly(before, action, actor, nextSide, text, by) {
 }
 function annotateAction(entry,before,action,actor,assessment=reviewAction(before,game,action,actor,game.result)){
   const sq=action.to||action.from||null
-  if(action.hunterGrade?.key==='brilliant'&&assessment.search)assessment={grade:action.hunterGrade}
+  if(action.hunterGrade?.key==='brilliant'&&assessment.search&&assessment.legality?.kind==='legal')assessment={grade:action.hunterGrade,legality:assessment.legality}
   Object.assign(entry,assessment,{id:crypto.randomUUID(),sq,actor,fx:{from:action.from,to:action.to,power:action.power,capture:!!before.b[action.to],promotion:!!action.promotion}})
-  if(game.duel)for(const old of game.logs)if(old!==entry&&old.search)delete old.search
   if(assessment.search)reviewQueue()
 }
 function markEdit(text,action,before=undoStack.at(-1),actor=game.side){
@@ -320,16 +319,17 @@ function gradeGlyph(d){
   const svg=(path)=>'<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">'+path+'</svg>'
   if(d.key==='best'||d.key==='illegalBest')return svg('<path fill="currentColor" d="m12 1.8 3.2 6.6 7.3 1-5.3 5.2 1.3 7.3-6.5-3.5-6.5 3.5 1.3-7.3L1.5 9.4l7.3-1z"/>')
   if(d.key==='book')return svg('<path fill="currentColor" d="M2 4c3-1 6-.6 9 1.4v15c-3-2-6-2.4-9-1.4zm20 0c-3-1-6-.6-9 1.4v15c3-2 6-2.4 9-1.4z"/>')
-  if(d.key==='miss')return svg('<path d="m6 6 12 12M18 6 6 18" fill="none" stroke="currentColor" stroke-width="3.5" stroke-linecap="round"/>')
-  if(d.key==='good'||d.key==='excellent')return svg('<path d="m4 12 5 5L20 6" fill="none" stroke="currentColor" stroke-width="3.5" stroke-linecap="round" stroke-linejoin="round"/>')
+  if(d.key==='miss'||d.key==='illegalMiss')return svg('<path d="m6 6 12 12M18 6 6 18" fill="none" stroke="currentColor" stroke-width="3.5" stroke-linecap="round"/>')
+  if(['good','excellent','illegalGood','illegalExcellent'].includes(d.key))return svg('<path d="m4 12 5 5L20 6" fill="none" stroke="currentColor" stroke-width="3.5" stroke-linecap="round" stroke-linejoin="round"/>')
   return '<span class="grade-symbol">'+esc(d.mark)+'</span>'
 }
 function paintReview(){
-  const last=[...game.logs].reverse().find(item=>item.grade)
+  const last=[...game.logs].reverse().find(item=>item.grade),summary=trackerSummary(game.logs)
+  const status=$('tracker-status');if(status)status.textContent='Move Tracker · '+summary.tracked+' tracked · '+summary.legal+' legal · '+summary.illegal+' illegal · '+summary.power+' powers · '+summary.pending+' pending'
   const box=$('move-review')
   box.hidden=!last
   if(last){
-    box.innerHTML=gradeChip(last)+'<div><strong>'+esc(last.by+' · '+last.text)+'</strong><p>'+esc(last.search?'Stockfish is reviewing the move.':last.grade.detail)+'</p></div><small>'+esc(last.search?'Pending engine review':last.grade.source+(Number.isFinite(last.grade.accuracy)?' · '+last.grade.accuracy.toFixed(1)+'% expected-score retention':''))+'</small>'
+    box.innerHTML=gradeChip(last)+'<div><strong>'+esc(last.by+' · '+last.text+(last.legality?' · '+last.legality.kind.toUpperCase():''))+'</strong><p>'+esc(last.search?'Stockfish is reviewing the move.':last.grade.detail+(last.legality?' '+last.legality.reason:'')+(last.grade.quality?' Tactical mark: '+grades[last.grade.quality][0]+'.':''))+'</p></div><small>'+esc(last.search?'Pending engine review':last.grade.source+(Number.isFinite(last.grade.accuracy)?' · '+last.grade.accuracy.toFixed(1)+'% expected-score retention':''))+'</small>'
   }
   board.querySelectorAll('.grade-pin,.grade-global').forEach(pin=>pin.remove())
   board.querySelectorAll('.rated-square,.rated-origin').forEach(s=>{s.classList.remove('rated-square','rated-origin','rating-edge-top','rating-edge-right');for(const k of Object.keys(grades))s.classList.remove('grade-'+k)})
@@ -901,7 +901,7 @@ async function botMove(token) {
   else if(game.botFollowup){notice='Opponent activated Double turn!';renderStatus();scheduleBot()}
   else if (dialogPage === 'history' && modal.open) showHistory()
 }
-function bossDescription(a){const title=({clone:'Cloning',immortal:'Immortality',double:'Double turn',freeze:'Time freeze',lock:'Reality lock',merge:'Reality merge',destroy:'Board destruction',immunity:'Checkmate immunity',transform:'Transform',...actionNames})[a.power]||abilities[a.power]||a.power;return a.power?(title+(a.type?' · '+label(a.type):'')+(a.size?' · '+a.size+' × '+a.size:'')+(a.steps?' · '+a.steps+' actions':'')+(a.from?' · '+a.from:'')+(a.to?' → '+a.to:'')):(a.normal?'Legal move · ':'Illegal move · ')+a.from+' → '+a.to+(a.promotion?' = '+label(a.promotion):'')}
+function bossDescription(a,before=game,actor=before.b[a.from]?.c||game.side){const title=({clone:'Cloning',immortal:'Immortality',double:'Double turn',freeze:'Time freeze',lock:'Reality lock',merge:'Reality merge',destroy:'Board destruction',immunity:'Checkmate immunity',transform:'Transform',...actionNames})[a.power]||abilities[a.power]||a.power;return a.power?(title+(a.type?' · '+label(a.type):'')+(a.size?' · '+a.size+' × '+a.size:'')+(a.steps?' · '+a.steps+' actions':'')+(a.from?' · '+a.from:'')+(a.to?' → '+a.to:'')):(classifyAction(before,a,actor).kind==='legal'?'Legal move · ':'Illegal move · ')+a.from+' → '+a.to+(a.promotion?' = '+label(a.promotion):'')}
 async function bossTurn(token){
   const id=prefs.bot,actor=other(game.side)
   if(consumeBotFreeze(game)||bossConsumeFreeze(game,actor)){game.pending=false;log('Boss turn frozen',botTitle());save();render();return}
@@ -916,7 +916,7 @@ async function bossTurn(token){
   Object.assign(game,chosen.state)
   const count=bossInfo(game,actor).turns
   game.result=count>=BOSS_GRACE?bossOutcome(game,actor,catalog()):null
-  const entry=log(bossDescription(action),botTitle()+(id==='illegal'&&suggestion?' · Stockfish-assisted':''))
+  const entry=log(bossDescription(action,before,actor),botTitle()+(id==='illegal'&&suggestion?' · Stockfish-assisted':''))
   annotateAction(entry,before,action,actor)
   const extra=action.power==='double'||bossConsumeFreeze(game,game.side)
   game.pending=!!(extra&&!game.result)
@@ -1029,7 +1029,7 @@ function showHistory() {
     if (!entry.grade) return '<li>' + line + '</li>'
     const detail = entry.search
       ? 'Stockfish is analyzing this position.'
-      : entry.grade.detail + ' · ' + entry.grade.source
+      : entry.grade.detail + ' · ' + entry.grade.source+(entry.legality?' · '+entry.legality.kind.toUpperCase()+': '+entry.legality.reason:'')+(entry.grade.quality?' · Tactical mark: '+grades[entry.grade.quality][0]:'')
     return (
       '<li><details data-entry="' +
       esc(entry.id) +
@@ -1058,7 +1058,7 @@ function showHelp() {
     ],
     [
       'Move review',
-      'Stockfish compares ordinary moves with its best line. A brilliant move offers material while keeping a strong evaluation. Freeform moves and powers get a sandbox estimate based on material and immediate threats. Sandbox estimates are labeled separately from verified engine grades. Brilliant engine grades require an engine-supported sacrifice. Illegal tactical ratings are sandbox estimates. Special powers have unique event marks for summoning, time, reality, void, fusion, protection and more. A small built-in opening book identifies common known opening moves. Open Move history for both sides’ grades.',
+      'Stockfish compares ordinary moves with its best line. A brilliant move offers material while keeping a strong evaluation. Move Tracker automatically reviews every completed move by either side. Dots and capture rings are legal destinations even for custom pieces; off-target moves get illegal variants. Stockfish reviews compatible legal positions, while legal custom moves use ordinary rating colors with a sandbox estimate. Powers retain distinct event marks and a tactical assessment. Sandbox estimates are labeled separately from verified engine grades. Brilliant engine grades require an engine-supported sacrifice. Illegal tactical ratings are sandbox estimates. Special powers have unique event marks for summoning, time, reality, void, fusion, protection and more. A small built-in opening book identifies common known opening moves. Open Move history for both sides’ grades.',
     ],
     [
       'Move anywhere',

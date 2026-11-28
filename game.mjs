@@ -328,7 +328,7 @@ export function destinations(state, from, power) {
   const chess = orthodox(state, piece.c)
   if (chess)
     return [...new Set(chess.moves({ square: from, verbose: true }).map((move) => move.to))]
-  return allSquares(state).filter((to) => movement(state.b, from, to,boardSize(state),state.destroyed||[],piece.c===state.side))
+  return allSquares(state).filter((to) => movement(state.b, from, to,boardSize(state),state.destroyed||[],true))
 }
 
 export function matchOutcome(before, after, nextSide) {

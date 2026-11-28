@@ -1561,3 +1561,9 @@ input[type='checkbox'] {
 .grade-global b svg{width:18px;height:18px}
 .illegal-legend{display:flex;gap:6px;flex-wrap:wrap;margin:8px 0}
 @media(prefers-reduced-motion:no-preference){.grade-global-pulse{animation:illegal-global-pop .35s ease-out both}@keyframes illegal-global-pop{from{opacity:0;scale:.85}to{opacity:1;scale:1}}}
+
+.grade-illegalGood{--grade-bg:#9168bc;--grade-fg:#fff}
+.grade-illegalExcellent{--grade-bg:#a66ddb;--grade-fg:#fff}
+.grade-illegalInaccuracy{--grade-bg:#d5a448;--grade-fg:#fff}
+.grade-illegalMiss{--grade-bg:#c563a0;--grade-fg:#fff}
+.tracker-status{font-size:.76rem;color:#b9c9c7;line-height:1.5;margin:6px 0;overflow-wrap:anywhere}

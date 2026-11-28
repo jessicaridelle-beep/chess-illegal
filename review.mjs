@@ -1,5 +1,5 @@
 import { Chess } from './vendor/chess.mjs'
-import { orthodox, movement, other, boardSize } from './game.mjs?v=boss-11'
+import { orthodox, movement, other, boardSize, destinations } from './game.mjs?v=tracker-16'
 
 const value = { p: 1, n: 3, b: 3.2, r: 5, q: 9, k: 0 }
 const worth = (piece) => (piece ? (value[piece.t] ?? 6) : 0)
@@ -11,6 +11,10 @@ export const grades = {
   brilliant: ['Brilliant', '!!'],
   great: ['Great', '!'],
   illegalBrilliant: ['Illegal brilliant', '!!'],
+  illegalGood: ['Illegal good', '✓'],
+  illegalExcellent: ['Illegal excellent', '✓'],
+  illegalInaccuracy: ['Illegal inaccuracy', '?!'],
+  illegalMiss: ['Illegal miss', '×'],
   illegalGreat: ["Illegal great","!"],
   illegalBest: ["Illegal capture","★"],
   illegalMove: ["Illegal move","✦"],
@@ -173,7 +177,7 @@ export function reviewMove(before, after, action, actor, outcome) {
       change > 0.5 ? 'Your side gains material.' : 'The material balance holds.',
       'Sandbox estimate',
     )
-  const sandbox = { grade: {...grade('sandbox', quick.detail, 'Sandbox estimate · ' + grades[quick.key][0]), visualKey:quick.key==='brilliant'?'illegalBrilliant':quick.key} }
+  const sandbox = { grade: {...grade('sandbox', quick.detail, 'Sandbox estimate · ' + grades[quick.key][0]), visualKey:quick.key} }
   if (power || !mover || mover.c !== actor || before.doubleTurn) return sandbox
   const chess = orthodox(before, actor)
   const candidate = chess
@@ -185,6 +189,8 @@ export function reviewMove(before, after, action, actor, outcome) {
   const fen = chess.fen()
   const alternatives = chess.moves({verbose:true}).map(m=>m.from+m.to+(m.promotion||'')).filter(m=>m!==from+to+(promotion||''))
   chess.move(candidate)
+  const expectedBoard=chess.board().flat().filter(Boolean)
+  if(expectedBoard.length!==Object.keys(after.b).length||expectedBoard.some(p=>after.b[p.square]?.c!==p.color||after.b[p.square]?.t!==p.type))return sandbox
   const captured = value[candidate.captured] || 0
   const offer = worth(mover) >= 3 && exchangeGain(chess, to) - captured >= 1.75
   return { grade: sandbox.grade, search: { fen, played: from + to + (promotion || ''), offer, alternatives } }
@@ -223,27 +229,53 @@ export function displayGrade(entry){
   return {key,title,mark,estimated:entry.grade.key==='sandbox'&&!entry.grade.powerCategory,pending:!!entry.search,power:entry.grade.powerCategory||null}
 }
 export const illegalPowerGrades={"flip":"reality","expand":"reality","lock":"reality","rewind":"time","freeze":"time","double":"time","hole":"void","spawn":"summon","clone":"summon","echo":"summon","mirror":"summon","replicate":"summon","merge":"fusion","transform":"fusion","immortal":"divine","immunity":"divine","decree":"divine","blessing":"divine","convert":"conversion","dominion":"conversion","radiance":"conversion","destroy":"destruction","delete":"destruction","nova":"chaos","shockwave":"chaos","beam":"chaos","diagonal":"chaos","comet":"chaos","consume":"chaos","phase":"illegalMove","exchange":"illegalMove","leap":"illegalMove","control":"illegalMove","sidestep":"illegalMove"}
+export function classifyAction(before,action,actor){
+  if(action.power)return {kind:'power',reason:'Sandbox ability: '+action.power}
+  const mover=before.b[action.from]
+  if(!mover||mover.c!==actor)return {kind:'illegal',reason:'Moving the other army or a missing piece.'}
+  if(!destinations(before,action.from,null).includes(action.to))return {kind:'illegal',reason:'Destination was outside the highlighted legal targets.'}
+  const ch=orthodox(before,actor)
+  if(ch&&action.promotion&&!ch.moves({square:action.from,verbose:true}).some(m=>m.to===action.to&&m.promotion===action.promotion))
+    return {kind:'illegal',reason:'Nonstandard promotion.'}
+  return {kind:'legal',reason:ch?'Highlighted legal chess move.':'Highlighted legal sandbox movement (including custom pieces).'}
+}
+const illegalQuality={brilliant:'illegalBrilliant',great:'illegalGreat',best:'illegalBest',excellent:'illegalExcellent',good:'illegalGood',inaccuracy:'illegalInaccuracy',mistake:'illegalMistake',blunder:'illegalBlunder',miss:'illegalMiss',winning:'illegalMate',drawn:'drawn'}
 export function reviewAction(before,after,action,actor,outcome){
+  const legality=classifyAction(before,action,actor)
   const result=reviewMove(before,after,action,actor,outcome)
-  if(result.search||result.grade.key==='book')return result
+  result.legality=legality
+  if(legality.kind==='legal'&&(result.search||result.grade.key==='book'))return result
+  if(legality.kind!=='legal')delete result.search
   const gained=points(after.b,actor)-points(before.b,actor)
-  if(action.power){
+  const quick=result.grade.visualKey||result.grade.key
+  const quality=result.grade.key!=='sandbox'?quick:
+    ['blunder','mistake','inaccuracy','miss'].includes(quick)?quick:
+    quick==='brilliant'||gained>=12?'brilliant':gained>=5?'best':gained>=2?'great':gained>0?'excellent':'good'
+  if(legality.kind==='power'){
     const category=illegalPowerGrades[action.power]||'customPower'
-    if(outcome?.winner===actor)result.grade.visualKey='illegalMate'
-    else if(outcome?.winner===other(actor))result.grade.visualKey='illegalBlunder'
-    else if(outcome?.winner===null)return result
-    else result.grade.visualKey=category
     result.grade.powerCategory=category
-    result.grade.source=outcome?'Game result · sandbox power':'Sandbox power · '+grades[category][0]
+    result.grade.quality=illegalQuality[quality]||'illegalMove'
+    result.grade.visualKey=outcome?.winner===actor?'illegalMate':outcome?.winner===other(actor)?'illegalBlunder':outcome?.winner===null?'drawn':category
+    result.grade.source=(outcome?'Game result · ':'Sandbox power · ')+grades[category][0]
     return result
   }
-  if(result.grade.key==='sandbox'){
-    const quick=result.grade.visualKey
-    result.grade.visualKey=quick==='blunder'?'illegalBlunder':quick==='mistake'?'illegalMistake':gained>=9||quick==='illegalBrilliant'?'illegalBrilliant':gained>=5?'illegalBest':gained>=2?'illegalGreat':'illegalMove'
-    result.grade.source='Sandbox estimate · '+grades[result.grade.visualKey][0]
-  }
+  result.grade.visualKey=legality.kind==='illegal'?(illegalQuality[quality]||'illegalMove'):quality
+  if(result.grade.key==='sandbox')result.grade.source='Sandbox estimate · '+grades[result.grade.visualKey][0]
   return result
 }
+export function trackerSummary(logs){
+  const out={tracked:0,legal:0,illegal:0,power:0,pending:0,brilliant:0}
+  for(const entry of logs){
+    if(!entry.grade)continue
+    out.tracked++
+    const kind=entry.legality?.kind
+    if(['legal','illegal','power'].includes(kind))out[kind]++
+    if(entry.search)out.pending++
+    else if(['brilliant','illegalBrilliant'].includes(entry.grade.visualKey||entry.grade.key))out.brilliant++
+  }
+  return out
+}
+export function nextTrackerReview(logs){return logs.find(entry=>entry.search)||null}
 export function latestBoardGrade(logs){
   const entry=logs.at(-1)
   if(!entry?.grade||!entry.fx||(!entry.sq&&!entry.fx.power))return null
