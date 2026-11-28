@@ -1,7 +1,7 @@
-import { icon, names, abilities, powers, originals, pieceArt, pieceAbilities, movementDescription, passiveAbilities, areaAbilities, escapeHtml as esc } from './ui.mjs?v=boss-7'
+import { icon, names, abilities, powers, originals, pieceArt, pieceAbilities, movementDescription, passiveAbilities, areaAbilities, escapeHtml as esc } from './ui.mjs?v=boss-8'
 import {
   fresh,
-  realityFlipRemaining, markRealityAction, canBossFlip,
+  realityFlipRemaining, markRealityAction, canBossFlip, bossActionKind, bossRepeatLimit, markBossStreak,
   isBoss, BOSS_GRACE, bossInfo, bossReply, bossOutcome, bossConsumeFreeze, bossConsumeLock, bossHasRoyal,
   isDivine, isDestroyed, mergePieces, destroySquare, toggleCheckmateImmunity,
   clone,
@@ -19,8 +19,8 @@ import {
   threatenedKings,
   convertPiece,
   boardSize, boardFiles, boardRanks, allSquares, expandBoard, blackHole, xy, legalBotTrial, sandboxNoMove, clonePiece, toggleImmortality, freezeBot, toggleRealityLock, consumeBotFreeze, godTrial, godPower,
-} from './game.mjs?v=boss-7'
-import { stockfishMove, compareMove } from './engine.mjs?v=boss-7'
+} from './game.mjs?v=boss-8'
+import { stockfishMove, compareMove } from './engine.mjs?v=boss-8'
 import { grades, reviewMove, engineGrade } from './review.mjs'
 const $ = (id) => document.getElementById(id),
   modal = $('modal'),
@@ -105,6 +105,7 @@ function renderDuel(){
   $('duel-step').disabled=duelRunning||duelBusy||!!game.result
   $('duel-white').textContent=duelName('w')+' · '+duelProfile('w')[2]
   $('duel-black').textContent=duelName('b')+' · '+duelProfile('b')[2]
+  const streak=game.bossActionStreak,anti=$('duel-repeat-status');if(anti)anti.textContent=streak?'Last action: '+(streak.kind==='move'?'Illegal move':actionNames[streak.kind]||abilities[streak.kind]||streak.kind)+' · '+streak.count+'/'+bossRepeatLimit(streak.kind)+(streak.count>=bossRepeatLimit(streak.kind)?' · choose a different action':''):'Anti-spam: ready'
   $('duel-count').textContent=(d.plies||0)+' moves'+['w','b'].filter(c=>isBoss(d[c])).map(c=>' · '+colorName(c)+' grace '+Math.min(BOSS_GRACE,bossInfo(game,c).turns)+'/'+BOSS_GRACE).join('')
 }
 function scheduleDuel(){
@@ -137,11 +138,12 @@ async function duelStep(){
     undoStack.push(before);if(undoStack.length>60)undoStack.shift();redoStack=[]
     const next=isBoss(id)&&action.power==='double'?actor:other(actor)
     Object.assign(game,{b:safe.b,rights:safe.rights,ep:safe.ep,last:safe.last,size:safe.size,destroyed:safe.destroyed,bossState:safe.bossState})
+    if(isBoss(id))game.bossActionStreak=safe.bossActionStreak;else markBossStreak(game,'legal')
     markRealityAction(game,action.power||'move')
     if(!isBoss(id))bossConsumeLock(game,actor)
     d.turn=next;d.plies=(d.plies||0)+1
     game.result=duelAfter(game,next,actor,action,before)
-    const entry=log(colorName(actor)+' · '+(action.power?bossDescription(action):label(before.b[action.from]?.t)+' '+action.from+(before.b[action.to]?' × ':' → ')+action.to+(action.promotion?' = '+label(action.promotion):'')),source)
+    const entry=log(colorName(actor)+' · '+(action.power||isBoss(id)&&!action.normal?bossDescription(action):label(before.b[action.from]?.t)+' '+action.from+(before.b[action.to]?' × ':' → ')+action.to+(action.promotion?' = '+label(action.promotion):'')),source)
     Object.assign(entry,{id:crypto.randomUUID(),sq:action.to,fx:{from:action.from,to:action.to,power:action.power,capture:!!before.b[action.to],promotion:!!action.promotion}})
     resetSelection()
     if(game.result)duelRunning=false
@@ -151,12 +153,12 @@ async function duelStep(){
 function duelDialog(){
   pauseDuel();renderStatus()
   const old=game.duel
-  dialog('Bot vs Bot','<p class="dialog-copy">Choose either bot for either color. Ordinary bots use normal moves. OWNER and Illegal Stockfish can use every sandbox power and cannot finish a game before their seventh move. Pause to edit the board with sandbox tools.</p><label class="form-field">White bot<select id="duel-w">'+selectOptions(duelOptions(),old?.w||'fish')+'</select></label><label class="form-field">Black bot<select id="duel-b">'+selectOptions(duelOptions(),old?.b||'fishmax')+'</select></label><label class="form-field">Move delay<select id="duel-delay">'+selectOptions([['150','Fast'],['500','Normal'],['1200','Slow'],['2500','Very slow']],String(old?.delay||500))+'</select></label><label class="check-row"><input id="duel-current" type="checkbox" '+(old?'checked':'')+'> Use current board (keep custom pieces)</label><label class="form-field">Side to move on current board<select id="duel-turn">'+selectOptions([['w','White'],['b','Black']],old?.turn||'w')+'</select></label><p class="dialog-note">Ratings are illustrative difficulty labels, not measured Elo. Stockfish variants use the bundled engine on compatible boards; other profiles use the sandbox engine.</p><div class="dialog-actions"><button class="secondary" id="duel-cancel">Cancel</button><button class="primary" id="duel-start">Start match</button></div>','duel')
+  dialog('Bot vs Bot','<p class="dialog-copy">Choose either bot for either color. Ordinary bots use normal moves. OWNER and Illegal Stockfish can use every sandbox power and cannot finish a game before their seventh move. Same ability: once consecutively; illegal moves, delete and spawn: up to three. Pause to edit the board with sandbox tools.</p><label class="form-field">White bot<select id="duel-w">'+selectOptions(duelOptions(),old?.w||'fish')+'</select></label><label class="form-field">Black bot<select id="duel-b">'+selectOptions(duelOptions(),old?.b||'fishmax')+'</select></label><label class="form-field">Move delay<select id="duel-delay">'+selectOptions([['150','Fast'],['500','Normal'],['1200','Slow'],['2500','Very slow']],String(old?.delay||500))+'</select></label><label class="check-row"><input id="duel-current" type="checkbox" '+(old?'checked':'')+'> Use current board (keep custom pieces)</label><label class="form-field">Side to move on current board<select id="duel-turn">'+selectOptions([['w','White'],['b','Black']],old?.turn||'w')+'</select></label><p class="dialog-note">Ratings are illustrative difficulty labels, not measured Elo. Stockfish variants use the bundled engine on compatible boards; other profiles use the sandbox engine.</p><div class="dialog-actions"><button class="secondary" id="duel-cancel">Cancel</button><button class="primary" id="duel-start">Start match</button></div>','duel')
   $('duel-cancel').onclick=()=>modal.close()
   $('duel-start').onclick=()=>{
     const keep=$('duel-current').checked,w=$('duel-w').value,b=$('duel-b').value,delay=Number($('duel-delay').value),turn=keep?$('duel-turn').value:'w'
     checkpoint();if(!keep)game=fresh()
-    game.result=null;game.pending=false;game.doubleTurn=0;game.frozenTurns=0;game.checkmateImmunity=false;game.bossState={};game.realityFlipUntil=0;game.realityFlipNeedsAction=false
+    game.result=null;game.pending=false;game.doubleTurn=0;game.frozenTurns=0;game.checkmateImmunity=false;game.bossState={};game.bossActionStreak=null;game.realityFlipUntil=0;game.realityFlipNeedsAction=false
     game.duel={w,b,delay,turn,plies:0,half:0,positions:[duelKey(game,turn)]};game.view='w';game.side='w';spawnColor='w';mode='move';resetSelection();modal.close();duelRunning=true;save();render();scheduleDuel()
   }
 }
@@ -887,7 +889,7 @@ async function botMove(token) {
   else if(game.botFollowup){notice='Opponent activated Double turn!';renderStatus();scheduleBot()}
   else if (dialogPage === 'history' && modal.open) showHistory()
 }
-function bossDescription(a){const title=({clone:'Cloning',immortal:'Immortality',double:'Double turn',freeze:'Time freeze',lock:'Reality lock',merge:'Reality merge',destroy:'Board destruction',immunity:'Checkmate immunity',transform:'Transform',...actionNames})[a.power]||abilities[a.power]||a.power;return a.power?(title+(a.type?' · '+label(a.type):'')+(a.size?' · '+a.size+' × '+a.size:'')+(a.steps?' · '+a.steps+' actions':'')+(a.from?' · '+a.from:'')+(a.to?' → '+a.to:'')):'Illegal move · '+a.from+' → '+a.to+(a.promotion?' = '+label(a.promotion):'')}
+function bossDescription(a){const title=({clone:'Cloning',immortal:'Immortality',double:'Double turn',freeze:'Time freeze',lock:'Reality lock',merge:'Reality merge',destroy:'Board destruction',immunity:'Checkmate immunity',transform:'Transform',...actionNames})[a.power]||abilities[a.power]||a.power;return a.power?(title+(a.type?' · '+label(a.type):'')+(a.size?' · '+a.size+' × '+a.size:'')+(a.steps?' · '+a.steps+' actions':'')+(a.from?' · '+a.from:'')+(a.to?' → '+a.to:'')):(a.normal?'Legal move · ':'Illegal move · ')+a.from+' → '+a.to+(a.promotion?' = '+label(a.promotion):'')}
 async function bossTurn(token){
   const id=prefs.bot,actor=other(game.side)
   if(consumeBotFreeze(game)||bossConsumeFreeze(game,actor)){game.pending=false;log('Boss turn frozen',botTitle());save();render();return}
@@ -904,7 +906,7 @@ async function bossTurn(token){
   const count=bossInfo(game,actor).turns
   game.result=count>=BOSS_GRACE?bossOutcome(game,actor,catalog()):null
   const entry=log(bossDescription(action),botTitle()+(id==='illegal'&&suggestion?' · Stockfish-assisted':''))
-  Object.assign(entry,{id:crypto.randomUUID(),sq:action.to||action.from,fx:{from:action.from,to:action.to,power:action.power||'illegal',capture:!!before.b[action.to],promotion:!!action.promotion}})
+  Object.assign(entry,{id:crypto.randomUUID(),sq:action.to||action.from,fx:{from:action.from,to:action.to,power:action.power||(action.normal?undefined:'illegal'),capture:!!before.b[action.to],promotion:!!action.promotion}})
   const extra=action.power==='double'||bossConsumeFreeze(game,game.side)
   game.pending=!!(extra&&!game.result)
   resetSelection();notice=count<BOSS_GRACE?'Boss grace period · '+count+'/'+BOSS_GRACE+' moves':extra?'Boss takes another turn':''

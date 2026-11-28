@@ -1,5 +1,5 @@
 import { Chess, validateFen } from './vendor/chess.mjs'
-import { names, pieceAbilities, originals } from './ui.mjs?v=boss-7'
+import { names, pieceAbilities, originals } from './ui.mjs?v=boss-8'
 export const files = 'abcdefgh'
 export const ranks = [8, 7, 6, 5, 4, 3, 2, 1]
 export const other = (c) => (c === 'w' ? 'b' : 'w')
@@ -489,6 +489,18 @@ export function godPower(s,catalog=[]){
 export const BOSS_GRACE=7
 export const isBoss=id=>id==='owner'||id==='illegal'
 export const bossInfo=(s,c)=>s.bossState?.[c]||{turns:0,freeze:0,lock:0,immune:false,used:{}}
+// Shared and per-boss anti-spam streaks count only completed actions.
+export const bossActionKind=a=>a?.power||(a?.normal?'legal':'move')
+export const bossRepeatLimit=kind=>kind==='legal'?Infinity:['move','delete','spawn'].includes(kind)?3:1
+export function canBossRepeat(s,c,kind){
+  const limit=bossRepeatLimit(kind),m=bossInfo(s,c),shared=s.bossActionStreak
+  const own=m.last===kind?(m.streak||1):0,global=shared?.kind===kind?(shared.count||1):0
+  return own<limit&&global<limit
+}
+export function markBossStreak(s,kind){
+  const prev=s.bossActionStreak
+  s.bossActionStreak=kind==='legal'?null:{kind,count:prev?.kind===kind?(prev.count||1)+1:1}
+}
 export const bossHasRoyal=(s,c)=>Object.values(s.b).some(p=>p.c===c&&isRoyal(p))
 function bossMeta(s,c,changes){s.bossState={...s.bossState,[c]:{...bossInfo(s,c),...changes}}}
 export function bossConsumeFreeze(s,c){const m=bossInfo(s,c);if(!m.freeze)return false;bossMeta(s,c,{freeze:m.freeze-1});return true}
@@ -515,10 +527,13 @@ function bossMove(s,from,to,promotion){
 }
 export function bossTrial(s,a,c,id,catalog=originals,history=[]){
   if(!isBoss(id)||!a)return null
-  const enemy=other(c),m=bossInfo(s,c),n=copy(s),oldSide=s.side,p=s.b[a.from],q=s.b[a.to],kind=a.power||'move'
+  const kind=bossActionKind(a)
+  if(!canBossRepeat(s,c,kind))return null
+  const enemy=other(c),m=bossInfo(s,c),n=copy(s),oldSide=s.side,p=s.b[a.from],q=s.b[a.to]
   n.side=c;n.duelMode=false
   if(m.lock&&a.power)return null
-  if(kind==='move'){if(p?.c!==c||!bossMove(n,a.from,a.to,a.promotion))return null}
+  if(kind==='legal'){const trial=legalBotTrial({...n,side:enemy,duelMode:true},a,c,catalog);if(!trial)return null;Object.assign(n,trial);n.side=c;n.duelMode=false}
+  else if(kind==='move'){if(p?.c!==c||!bossMove(n,a.from,a.to,a.promotion))return null}
   else if(kind==='control'){if(p?.c!==enemy||!bossMove(n,a.from,a.to,a.promotion))return null}
   else if(kind==='spawn'){if(!allSquares(n).includes(a.to)||q||!([...standardTypes,...catalog.map(x=>x.id)].includes(a.type)))return null;edit(n,a.to,{c,t:a.type,...(a.type==='godking'?{immortal:true}:{})})}
   else if(kind==='delete'){if(!q||q.c!==enemy||!edit(n,a.to,null))return null}
@@ -542,7 +557,8 @@ export function bossTrial(s,a,c,id,catalog=originals,history=[]){
   // Before the seventh completed boss action, neither capture of the last royal nor a checking move is allowed.
   if(turns<BOSS_GRACE&&(!bossHasRoyal(n,enemy)||threatenedKings(n,catalog).some(sq=>n.b[sq].c===enemy)))return null
   if(turns<BOSS_GRACE){const ch=orthodox(n,enemy);if(ch?.isCheckmate())return null}
-  bossMeta(n,c,{turns,extra:kind==='double',last:kind,used:{...m.used,[kind]:(m.used?.[kind]||0)+1},lock:Math.max(0,m.lock-1)})
+  bossMeta(n,c,{turns,extra:kind==='double',last:kind,streak:m.last===kind?(m.streak||1)+1:1,used:{...m.used,[kind]:(m.used?.[kind]||0)+1},lock:Math.max(0,m.lock-1)})
+  markBossStreak(n,kind)
   markRealityAction(n,kind)
   n.side=oldSide;n.duelMode=s.duelMode
   return n
@@ -553,8 +569,9 @@ export function bossReply(s,c,id,catalog=originals,history=[],suggested=null){
   const near=sq=>{const [x,y]=xy(sq);return 1-Math.max(Math.abs(x-(boardSize(s)-1)/2),Math.abs(y-(boardSize(s)-1)/2))/boardSize(s)}
   const scoreBoard=b=>Object.values(b).reduce((v,p)=>v+(p.c===c?1:-1)*val(p),0)
   const initial=scoreBoard(s.b),bias=kind=>1.3/(1+(m.used?.[kind]||0))
-  const add=(action,score=0)=>a.push({action,score:score+bias(action.power||'move')+Math.random()*.15})
-  if(suggested)add({from:suggested.from,to:suggested.to,promotion:suggested.promotion},4+val(s.b[suggested.to]))
+  const add=(action,score=0)=>{const kind=bossActionKind(action);if(canBossRepeat(s,c,kind))a.push({action,score:score+bias(kind)+Math.random()*.15})}
+  if(suggested)add({from:suggested.from,to:suggested.to,promotion:suggested.promotion,normal:true},4+val(s.b[suggested.to]))
+  if(!canBossRepeat(s,c,'move')||m.lock){for(const action of botCandidates(s,c,catalog))add({...action,normal:true},val(s.b[action.to])*.8+near(action.to)-near(action.from))}
   for(const [from,p] of own){
     for(const to of squares){if(to===from||s.b[to]?.c===c||isDivine(s.b[to]))continue;const victim=s.b[to],promotion=p.t==='p'&&Number(to.slice(1))===(c==='w'?boardSize(s):1)?'q':undefined
       add({from,to,promotion},val(victim)*.9+near(to)-near(from)+(promotion?6:0))}
@@ -590,7 +607,7 @@ export function bossReply(s,c,id,catalog=originals,history=[],suggested=null){
   a.sort((x,y)=>y.score-x.score)
   let best=null,bestScore=-Infinity,checked=0
   // Try the top tactical candidates plus a few of every available power, so the boss can actually use its full arsenal.
-  const groups=new Map();for(const item of a){const k=item.action.power||'move';if(!groups.has(k))groups.set(k,[]);if(groups.get(k).length<3)groups.get(k).push(item)}
+  const groups=new Map();for(const item of a){const k=bossActionKind(item.action);if(!groups.has(k))groups.set(k,[]);if(groups.get(k).length<3)groups.get(k).push(item)}
   const candidates=[...new Set([...a.slice(0,72),...Array.from(groups.values()).flat()])]
   for(const item of candidates){
     const t=bossTrial(s,item.action,c,id,catalog,history);if(!t)continue
@@ -606,5 +623,7 @@ export function bossReply(s,c,id,catalog=originals,history=[],suggested=null){
   if(best)return best
   // Exhaust the remaining candidates if the grace filter rejected the top choices.
   for(const item of a){const t=bossTrial(s,item.action,c,id,catalog,history);if(t)return {action:item.action,state:t}}
+  // Legal chess is always an available fallback if the position permits it.
+  for(const candidate of botCandidates(s,c,catalog)){const action={...candidate,normal:true},t=bossTrial(s,action,c,id,catalog,history);if(t)return {action,state:t}}
   return null
 }
