@@ -1,6 +1,7 @@
-import { icon, names, abilities, powers, originals, pieceArt, escapeHtml as esc } from './ui.mjs'
+import { icon, names, abilities, powers, originals, pieceArt, escapeHtml as esc } from './ui.mjs?v=reality-3'
 import {
   fresh,
+  isDivine, isDestroyed, mergePieces, destroySquare, toggleCheckmateImmunity,
   clone,
   files,
   ranks,
@@ -16,7 +17,7 @@ import {
   threatenedKings,
   convertPiece,
   boardSize, boardFiles, boardRanks, allSquares, expandBoard, blackHole, xy, legalBotTrial, sandboxNoMove, clonePiece, toggleImmortality, freezeBot, toggleRealityLock, consumeBotFreeze, godTrial, godPower,
-} from './game.mjs?v=ai-god-2'
+} from './game.mjs?v=reality-3'
 import { stockfishMove, compareMove } from './engine.mjs'
 import { grades, reviewMove, engineGrade } from './review.mjs'
 const $ = (id) => document.getElementById(id),
@@ -76,6 +77,9 @@ const toolInfo = [
   ['clone','Cloning','Copy any piece anywhere'],
   ['immortal','Immortality','Toggle invincibility'],
   ['freeze','Time freeze','Add 3 skipped bot turns'],
+  ['merge','Reality merge','Combine two allies'],
+  ['destroy','Board destruction','Remove a square'],
+  ['immunity','Checkmate immunity','Keep playing after mate'],
 ]
 const classicOrder = ['p', 'n', 'b', 'r', 'q', 'k']
 function save() {
@@ -301,6 +305,7 @@ function travel(from, to, promotion) {
   const p = game.b[from],
     q = game.b[to]
   if (!p || (mode === 'control' && p.c === game.side)) return
+  if(isDestroyed(game,to)||isDivine(q)){notice='That square is destroyed or protected by divine power.';renderStatus();return}
   const possessed = mode === 'control'
   checkpoint()
   move(game, from, to, promotion)
@@ -321,7 +326,7 @@ function travel(from, to, promotion) {
 }
 function convertAt(sq) {
   const p = game.b[sq]
-  if (!p || p.c === game.side) {
+  if (!p || p.c === game.side||isDivine(p)) {
     notice = 'Choose an enemy piece to convert to your army.'
     renderStatus()
     return
@@ -356,6 +361,7 @@ function castHole(sq) {
 }
 function selectMode(value) {
   if (value === 'rewind') return rewindDialog()
+  if(value==='immunity'&&(!game.result||game.result.winner===other(game.side)&&['Checkmate','Sandbox checkmate'].includes(game.result.reason))){checkpoint();const on=toggleCheckmateImmunity(game);if(on&&game.result)game.result=null;mode='move';log('Checkmate immunity · '+(on?'enabled':'disabled'));endAction();return}
   if (game.result) return showResult()
   if (value === 'double') return activateDouble()
   if(value==='freeze'||value==='lock'){
@@ -374,7 +380,7 @@ function selectMode(value) {
     endAction()
     return
   }
-  if (['control','convert','hole','clone','immortal'].includes(value) && game.pending) {
+  if (['control','convert','hole','clone','immortal','merge','destroy'].includes(value) && game.pending) {
     cancelBot()
     game.pending = false
     save()
@@ -391,6 +397,18 @@ function chooseSpawn(t) {
 }
 function actOn(sq) {
   if (game.result) return showResult()
+  if(isDestroyed(game,sq)){notice='This square has been destroyed. Undo to restore it.';renderStatus();return}
+  if(mode==='merge'){
+    if(!selected){if(game.b[sq]?.c===game.side){selected=sq;notice='Choose a second friendly piece.';render()}return}
+    if(selected===sq){resetSelection();render();return}
+    const from=selected,trial=clone(game);if(!mergePieces(trial,from,sq)){notice='Choose another friendly piece.';renderStatus();return}
+    checkpoint();Object.assign(game,{b:trial.b,rights:trial.rights,ep:trial.ep,last:trial.last});const entry=log('Reality merge · '+from+' + '+sq);entry.id=crypto.randomUUID();entry.fx={power:'merge',from,to:sq};endAction();return
+  }
+  if(mode==='destroy'){
+    if(isDivine(game.b[sq])){notice='The God King cannot be destroyed.';renderStatus();return}
+    checkpoint();destroySquare(game,sq);recordPly(undoStack.at(-1),{from:sq,to:sq,power:'destroy'},game.side,other(game.side),'Board destruction · '+sq);endAction(true);return
+  }
+  if(isDivine(game.b[sq])&&(['delete','spawn','immortal','convert'].includes(mode)||(mode==='clone'&&selected))){notice='Divine protection prevents this action.';renderStatus();return}
   if (powerTarget) {
     activatePower(selected, sq, powerTarget)
     return
@@ -408,7 +426,7 @@ function actOn(sq) {
   if (mode === 'convert') return convertAt(sq)
   if (mode === 'spawn') {
     checkpoint()
-    edit(game, sq, { c: spawnColor, t: spawnType })
+    edit(game, sq, { c: ['godking','overlord','devourer','fusion'].includes(spawnType)?game.side:spawnColor, t: spawnType, ...(spawnType==='godking'?{immortal:true}: {}) })
     log('Spawn ' + colorName(spawnColor).toLowerCase() + ' ' + label(spawnType) + ' · ' + sq)
     endAction()
     return
@@ -513,7 +531,8 @@ function renderBoard() {
         (selected === sq ? 'selected ' : '') +
         (game.last.includes(sq) ? 'last ' : '') +
         (checked.has(sq) ? 'king-check ' : '') +
-        (p?.immortal?'immortal-piece ':'') +
+        (isDestroyed(game,sq)?'destroyed-square ':'') +
+        (p?.immortal||isDivine(p)?'immortal-piece ':'') +
         (p?.c!==game.side && p && game.frozenTurns>0?'frozen-piece ':'') +
         (p?.c!==game.side && p && game.realityLock?'locked-piece ':'') +
         (animate && entry.fx.power && game.last.includes(sq) ? 'power-flash fx-' + entry.fx.power + ' ' : '') +
@@ -581,7 +600,7 @@ function paintDestinations() {
       'aria-label',
       sq +
         ' · ' +
-        (piece ? colorName(piece.c) + ' ' + label(piece.t) : 'empty') +
+        (isDestroyed(game,sq)?'destroyed':piece ? colorName(piece.c) + ' ' + label(piece.t) : 'empty') +
         (eligible ? ' · eligible enemy target' : '') + (target ? ' · suggested target' : '') + (square.classList.contains('king-check') ? ' · king under attack' : ''),
     )
   }
@@ -594,6 +613,8 @@ function renderStatus() {
     notice ||
     (powerTarget
       ? 'Choose a target for ' + abilities[powerTarget] + '.'
+      : mode === 'merge' ? (selectedPiece?'Choose another friendly piece to fuse.':'Select your first friendly piece.')
+      : mode === 'destroy' ? 'Tap a square to permanently remove it. Undo to restore.'
       : mode === 'clone' ? selectedPiece?'Choose any destination, including occupied squares.':'Select any piece to duplicate, including kings.'
       : mode === 'immortal' ? 'Tap any piece to toggle permanent protection from bot captures.'
       : mode === 'hole'
@@ -617,7 +638,7 @@ function renderStatus() {
   const checked = threatenedKings(game,catalog())
   const ownCheck = checked.some(sq=>game.b[sq].c===game.side)
   const enemyCheck = checked.some(sq=>game.b[sq].c!==game.side)
-  $('turn').textContent = game.result ? resultTitle() : game.pending ? 'Bot thinking…' : game.frozenTurns>0 ? 'Bot frozen · '+game.frozenTurns+' turns' : game.doubleTurn ? 'Double turn armed' : ownCheck ? 'Your king in check!' : enemyCheck ? 'Enemy king in check!' : 'Your turn'
+  $('turn').textContent = game.result ? resultTitle() : game.pending ? 'Bot thinking…' : game.frozenTurns>0 ? 'Bot frozen · '+game.frozenTurns+' turns' : game.doubleTurn ? 'Double turn armed' : game.checkmateImmunity?'Checkmate immunity active':ownCheck ? 'Your king in check!' : enemyCheck ? 'Enemy king in check!' : 'Your turn'
   $('turn').parentElement.classList.toggle('check-turn', !!checked.length && !game.result)
   $('match-result').hidden = !game.result
   if (game.result) $('result-summary').textContent = resultTitle() + ' · ' + game.result.reason
@@ -633,13 +654,14 @@ function renderStatus() {
   const power = catalog().find((v) => v.id === selectedPiece?.t)?.power
   $('power-area').innerHTML = selectedPiece
     ? '<div class="form-row">' +
-      (power
+      (power && !['divine','supremacy','absorption','fusion'].includes(power)
         ? '<button class="power-btn" data-special="use">' +
           icon('star', 16) +
           'Use ' +
           abilities[power] +
           '</button>'
         : '') +
+      (power&&['divine','supremacy','absorption','fusion'].includes(power)?'<span class="passive-power">'+esc(powers[power])+(selectedPiece.traits?.length?' · Inherited: '+esc(selectedPiece.traits.map(t=>names[t]||t).join(', ')):'')+'</span>':'')+
       '<button class="power-btn" data-special="transform">' +
       icon('rotate', 16) +
       'Transform piece</button>' +
@@ -657,9 +679,9 @@ function render() {
     .map(
       ([key, name, desc]) =>
         '<button class="tool ' +
-        ((key === mode || (key==='double'&&game.doubleTurn)||(key==='lock'&&game.realityLock)||(key==='freeze'&&game.frozenTurns>0)) ? 'active' : '') +
+        ((key === mode || (key==='double'&&game.doubleTurn)||(key==='immunity'&&game.checkmateImmunity)||(key==='lock'&&game.realityLock)||(key==='freeze'&&game.frozenTurns>0)) ? 'active' : '') +
         '" aria-pressed="' +
-        (key === mode || (key==='double'&&!!game.doubleTurn)||(key==='lock'&&!!game.realityLock)||(key==='freeze'&&game.frozenTurns>0)) +
+        (key === mode || (key==='double'&&!!game.doubleTurn)||(key==='immunity'&&game.checkmateImmunity)||(key==='lock'&&!!game.realityLock)||(key==='freeze'&&game.frozenTurns>0)) +
         '" data-tool="' +
         key +
         '">' +
@@ -671,7 +693,7 @@ function render() {
         '</small></span></button>',
     )
     .join('')
-  $('tray').innerHTML = [...classicOrder, ...catalog().map(item=>item.id)]
+  $('tray').innerHTML = [...classicOrder, ...catalog().filter(item=>item.id!=='fusion').map(item=>item.id)]
     .map(
       (t) =>
         '<button data-spawn="' +
@@ -1090,7 +1112,7 @@ function forge() {
         )
         .join('') +
       '</div><label class="form-field">Or upload an image<input id="art-file" type="file" accept="image/png,image/jpeg,image/webp,image/gif"></label><label class="form-field">Special ability<select id="ability">' +
-      selectOptions(Object.entries(abilities), 'radiance') +
+      selectOptions(Object.entries(abilities).filter(([id])=>!['divine','supremacy','absorption','fusion'].includes(id)), 'radiance') +
       '</select></label><p class="dialog-note" id="power-desc"></p><p class="error" id="forge-error" role="status"></p><div class="dialog-actions"><button type="button" class="secondary" id="forge-back">Back</button><button class="primary" type="submit">Create piece</button></div></form>',
     'forge',
   )
@@ -1199,13 +1221,14 @@ $('power-area').onclick = (e) => {
   if (cmd === 'convert') return convertAt(selected)
   if (cmd === 'transform') {
     const sq = selected
+    if(isDivine(p)){notice='The God King cannot be transformed. Undo to remove it.';renderStatus();return}
     piecePicker(
       'Transform piece',
       'Choose any replacement, including a pawn or a custom piece.',
       p.c,
       (t) => {
         checkpoint()
-        edit(game, sq, { c: p.c, t })
+        edit(game, sq, { c: ['godking','overlord','devourer','fusion'].includes(t)?game.side:p.c, t, ...(t==='godking'?{immortal:true}:{}) })
         log('Transform ' + sq + ' → ' + label(t))
         endAction()
       },

@@ -1,4 +1,7 @@
 const outlines = {
+  merge:'<circle cx="9" cy="12" r="6"/><circle cx="15" cy="12" r="6"/><path d="M12 9v6"/>',
+  destroy:'<rect x="3" y="3" width="18" height="18" rx="2"/><path d="m14 3-5 8 6 2-5 8"/>',
+  immunity:'<path d="M12 2 3 6v6c0 5 5 9 9 10 4-1 9-5 9-10V6zM8 12l3 3 5-6"/>',
   lock:'<rect x="4" y="10" width="16" height="12" rx="3"/><path d="M8 10V6a4 4 0 0 1 8 0v4m-4 5v3"/>',
   clone:'<rect x="3" y="3" width="13" height="13" rx="2"/><rect x="8" y="8" width="13" height="13" rx="2"/>',
   immortal:'<path d="M12 2 3 6v6c0 5 5 9 9 10 4-1 9-5 9-10V6zM8 12l3 3 5-6"/>',
@@ -57,8 +60,12 @@ export const escapeHtml = (value) =>
     (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c],
   )
 export const names = { p: 'Pawn', n: 'Knight', b: 'Bishop', r: 'Rook', q: 'Queen', k: 'King' }
-export const abilities = { radiance: 'Radiance', exchange: 'Phase swap', leap: 'Star leap', nova: 'Nova blast', echo: 'Echo spawn', beam: 'Prism beam' }
+export const abilities = { divine:'Divine protection',supremacy:'All standard moves',absorption:'Absorb movement',fusion:'Combined movement',radiance: 'Radiance', exchange: 'Phase swap', leap: 'Star leap', nova: 'Nova blast', echo: 'Echo spawn', beam: 'Prism beam' }
 export const powers = {
+  divine: 'A royal piece that cannot be captured, converted or destroyed. Moves like a king.',
+  supremacy: 'Combines every standard movement, including queen slides and knight jumps.',
+  absorption: 'Starts with king movement and permanently inherits movement from captured pieces.',
+  fusion: 'Inherits both merged pieces’ standard movements and royal or divine traits.',
   radiance: 'Turn every enemy on a touching square, including diagonals, to your color.',
   exchange: 'Trade squares with any other piece. Both pieces stay on the board.',
   leap: 'Jump two squares in any direction and convert an enemy at the midpoint.',
@@ -68,6 +75,10 @@ export const powers = {
 }
 const relic = (color, emblem) => 'data:image/svg+xml,' + encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 96 96"><path d="M22 84h52l-5-14-10-9H37l-10 9z" fill="#25252e" stroke="'+color+'" stroke-width="4"/><circle cx="48" cy="38" r="29" fill="#22232d" stroke="'+color+'" stroke-width="4"/><g fill="'+color+'" stroke="#fff" stroke-width="1.5" stroke-linejoin="round">'+emblem+'</g></svg>')
 export const originals = [
+  {id:'godking',name:'The God King',power:'divine',art:relic('#facc15','<path d="M25 51l-5-26 17 10 11-21 11 21 17-10-5 26z"/><path d="M27 58h42"/>')},
+  {id:'overlord',name:'The Overlord',power:'supremacy',art:relic('#c084fc','<path d="M25 53l-5-29 17 12 11-23 11 23 17-12-5 29z"/><circle cx="48" cy="43" r="6"/>')},
+  {id:'devourer',name:'The Devourer',power:'absorption',art:relic('#f87171','<path d="M20 31l14 7 14-17 14 17 14-7-10 29H30z"/><path d="M37 45l11 10 11-10" fill="none"/>')},
+  {id:'fusion',name:'Reality Fusion',power:'fusion',art:relic('#67e8f9','<circle cx="38" cy="38" r="14"/><circle cx="58" cy="38" r="14"/><path d="m48 24 7 14-7 14-7-14z"/>')},
   { id: 'illuminator', name: 'Illuminator', art: 'art/illuminator.svg', power: 'radiance' },
   { id: 'phantom', name: 'Phantom', art: 'art/phantom.svg', power: 'exchange' },
   { id: 'starwalker', name: 'Starwalker', power: 'leap', art: relic('#c3a2ff','<path d="m48 13 7 17 19 2-14 12 4 19-16-10-16 10 4-19-14-12 19-2z"/>') },
