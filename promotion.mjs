@@ -121,6 +121,12 @@ export function playPromotion(root,piece,{art,label,preview=false,reduced=false,
   const title=el('div','promotion-title',scene)
   const top=el('small','promotion-kicker',title);top.textContent=preview?'ANIMATION PREVIEW':'PAWN PROMOTION'
   const name=el('strong','promotion-name',title);name.textContent=label(piece.t)
-  if(!reduced){addOriginalFrames(scene,piece.t);addLanding(scene,board,piece,size,view)}
+  if(!reduced){
+    const comet=el('div','promo-live-comet',scene);
+    for(let i=0;i<5;i++){const trail=el('i','promo-live-trail',comet);trail.style.setProperty('--trail',i)}
+    const orbit=el('div','promo-live-orbit',frame);
+    for(let i=0;i<3;i++){const ring=el('i','promo-live-ring',orbit);ring.style.setProperty('--orbit',i)}
+    addOriginalFrames(scene,piece.t);addLanding(scene,board,piece,size,view)
+  }
   return {scene,duration}
 }

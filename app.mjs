@@ -1,6 +1,6 @@
 import {initReferenceArt} from './reference-art.mjs?v=cinema-39'
-import { promotedPiece, playPromotion, startPromotionAftermath, clearPromotionAftermath, syncPromotionAftermath } from './promotion.mjs?v=cinema-39'
-import { initMusic } from './music.mjs?v=music-31'
+import { promotedPiece, playPromotion, startPromotionAftermath, clearPromotionAftermath, syncPromotionAftermath } from './promotion.mjs?v=cinema-40'
+import { initMusic } from './music.mjs?v=music-40'
 import { actionHold, delayForPresentation, extendPresentation, preparedRatingMatches } from './presentation.mjs?v=tempo-28'
 import { isMate, isBrilliant, isGreat, canPlayFinale, playFinale } from './finale.mjs?v=cinema-39'
 import { paintEditPaths, clearEditPaths, burstEdit, editPaths, syncBadgeTint, tacticalTrails, geometryAttack } from './editfx.mjs?v=impact-34'

@@ -47,7 +47,7 @@ export function initMusic(root){
   const $=id=>root.querySelector('#'+id),input=$('music-id'),audio=$('music-audio'),video=$('music-video'),status=$('music-status'),loop=$('music-loop'),volume=$('music-volume'),file=$('music-file')
   let saved={},objectUrl=null,current=null,player=null,revision=0
   try{saved=JSON.parse(localStorage.getItem('chessillegal.music.v1'))||{}}catch{}
-  input.value=typeof saved.input==='string'?saved.input:''
+  input.value=typeof saved.input==='string'?saved.input:'https://www.youtube.com/watch?v=N5zZTM6bDDA&t=109s'
   loop.checked=saved.loop!==false
   volume.value=Number.isFinite(saved.volume)?Math.max(0,Math.min(100,saved.volume)):35
   audio.volume=Number(volume.value)/100;audio.loop=loop.checked
@@ -73,7 +73,7 @@ export function initMusic(root){
       const rev=revision,iframe=document.createElement('iframe'),watch=$('music-watch')
       watch.href='https://www.youtube.com/watch?v='+track.id;watch.hidden=false
       iframe.title='YouTube soundtrack player';iframe.allow='autoplay; encrypted-media; picture-in-picture; fullscreen';iframe.allowFullscreen=true;iframe.referrerPolicy='strict-origin-when-cross-origin'
-      iframe.src=embedMusic(track.id,loop.checked,window.location.origin)
+      iframe.src=embedMusic(track.id,loop.checked,window.location.origin)+(track.id==='N5zZTM6bDDA'?'&start=109':'')
       video.append(iframe);video.hidden=false
       status.textContent='Loading YouTube player for '+track.id+'… Press play when it appears.'
       youtubeAPI().then(YT=>{

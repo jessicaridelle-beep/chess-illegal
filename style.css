@@ -1946,3 +1946,16 @@ input[type='checkbox'] {
 @keyframes promo-scene-exit{0%{opacity:0}4%,84%{opacity:1}92%,100%{opacity:0}}
 @keyframes promo-props-exit{0%{opacity:0}6%,80%{opacity:1}88%,100%{opacity:0}}
 @keyframes promo-title-exit{to{opacity:0}}
+
+/* Continuous camera motion on the supplied frames, with live energy between them. */
+.promotion-cinema .promotion-reference-frame{background:transparent;overflow:hidden}
+.promotion-cinema .promotion-reference-frame img{animation:promo-reference-motion var(--ref-length) ease-in-out var(--ref-start) both;transform-origin:center}
+@keyframes promo-reference-motion{0%{transform:scale(1.015) rotate(-.6deg)}50%{transform:scale(1.065) rotate(.6deg)}100%{transform:scale(1.035) rotate(0)}}
+.promo-live-comet{position:absolute;z-index:11;left:50%;top:48%;width:0;height:0;animation:promo-comet-flight 1.4s cubic-bezier(.15,.7,.25,1) both;pointer-events:none}
+.promo-live-trail{position:absolute;width:clamp(100px,35vw,420px);height:calc(5px + var(--trail)*3px);transform-origin:left center;transform:rotate(-43deg) translateY(calc(var(--trail)*4px));background:linear-gradient(90deg,white,#f36cff 15%,#6a4cff 40%,#34d9ff 60%,transparent);filter:blur(2px);border-radius:100%;box-shadow:0 0 15px #d967ff}
+@keyframes promo-comet-flight{0%{transform:translate(40vw,-40vh);opacity:0}15%{opacity:1}75%{transform:translate(0,0);opacity:1}100%{transform:translate(0,0);opacity:0}}
+.promo-live-orbit{position:absolute;inset:5%;pointer-events:none;animation:promo-orbit-envelope 5.7s ease both}
+.promo-live-ring{position:absolute;inset:calc(4% + var(--orbit)*9%);border:2px solid var(--promo-color);border-radius:50%;box-shadow:0 0 16px var(--promo-color),inset 0 0 12px var(--promo-color);animation:promo-orbit-spin calc(2s + var(--orbit)*.6s) linear infinite;transform-style:preserve-3d}
+@keyframes promo-orbit-spin{from{transform:rotate(0deg) rotateX(58deg) rotateY(20deg)}to{transform:rotate(360deg) rotateX(58deg) rotateY(20deg)}}
+@keyframes promo-orbit-envelope{0%,100%{opacity:0}20%,75%{opacity:.8}}
+@media(prefers-reduced-motion:reduce){.promo-live-comet,.promo-live-orbit{display:none}.promotion-reference-frame img{animation:none!important}}
