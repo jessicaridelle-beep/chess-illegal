@@ -22,7 +22,7 @@ import {
   boardSize, boardFiles, boardRanks, allSquares, expandBoard, blackHole, xy, legalBotTrial, sandboxNoMove, clonePiece, toggleImmortality, freezeBot, toggleRealityLock, consumeBotFreeze, godTrial, godPower,
 } from './game.mjs?v=boss-11'
 import { stockfishMove, compareMove } from './engine.mjs?v=boss-11'
-import { grades, reviewMove, engineGrade } from './review.mjs'
+import { grades, reviewAction, engineGrade, displayGrade, latestBoardGrade } from './review.mjs?v=marks-12'
 const $ = (id) => document.getElementById(id),
   modal = $('modal'),
   board = $('board')
@@ -45,6 +45,7 @@ let prefs = {
   sound: false,
   effects: true,
   cinematic: true,
+  marks: true,
   theme: 'green',
   ...saved.prefs,
 }
@@ -147,7 +148,7 @@ async function duelStep(){
     d.turn=next;d.plies=(d.plies||0)+1
     game.result=duelAfter(game,next,actor,action,before)
     const entry=log(colorName(actor)+' · '+(action.power||isBoss(id)&&!action.normal?bossDescription(action):label(before.b[action.from]?.t)+' '+action.from+(before.b[action.to]?' × ':' → ')+action.to+(action.promotion?' = '+label(action.promotion):'')),source)
-    Object.assign(entry,{id:crypto.randomUUID(),sq:action.to,fx:{from:action.from,to:action.to,power:action.power,capture:!!before.b[action.to],promotion:!!action.promotion}})
+    annotateAction(entry,before,action,actor)
     resetSelection()
     if(game.result)duelRunning=false
   }catch(err){if(epoch===token){duelRunning=false;notice='Bot match paused: '+String(err.message||err)}}
@@ -156,10 +157,11 @@ async function duelStep(){
 function duelDialog(){
   pauseDuel();renderStatus()
   const old=game.duel
-  dialog('Bot vs Bot','<p class="dialog-copy">Choose either bot for either color. Ordinary bots use normal moves. OWNER and Illegal Stockfish can use every sandbox power and cannot finish a game before their seventh move. Flip protection: only surviving pieces switch sides; boss rewinds cannot cross a flip or restore an older match. Anti-spam v3: at most three special powers in any five completed actions; actual piece moves are required between bursts. Black Hole has a shared 20-second cooldown and eight intervening actions. Illegal moves, delete and spawn retain their three-use caps. Pause to edit the board with sandbox tools.</p><label class="form-field">White bot<select id="duel-w">'+selectOptions(duelOptions(),old?.w||'fish')+'</select></label><label class="form-field">Black bot<select id="duel-b">'+selectOptions(duelOptions(),old?.b||'fishmax')+'</select></label><label class="form-field">Move delay<select id="duel-delay">'+selectOptions([['150','Fast'],['500','Normal'],['1200','Slow'],['2500','Very slow']],String(old?.delay||500))+'</select></label><label class="check-row"><input id="duel-current" type="checkbox" '+(old?'checked':'')+'> Use current board (keep custom pieces)</label><label class="form-field">Side to move on current board<select id="duel-turn">'+selectOptions([['w','White'],['b','Black']],old?.turn||'w')+'</select></label><p class="dialog-note">Ratings are illustrative difficulty labels, not measured Elo. Stockfish variants use the bundled engine on compatible boards; other profiles use the sandbox engine.</p><div class="dialog-actions"><button class="secondary" id="duel-cancel">Cancel</button><button class="primary" id="duel-start">Start match</button></div>','duel')
+  dialog('Bot vs Bot','<p class="dialog-copy">Choose either bot for either color. Ordinary bots use normal moves. OWNER and Illegal Stockfish can use every sandbox power and cannot finish a game before their seventh move. Flip protection: only surviving pieces switch sides; boss rewinds cannot cross a flip or restore an older match. Anti-spam v3: at most three special powers in any five completed actions; actual piece moves are required between bursts. Black Hole has a shared 20-second cooldown and eight intervening actions. Illegal moves, delete and spawn retain their three-use caps. Pause to edit the board with sandbox tools.</p><label class="form-field">White bot<select id="duel-w">'+selectOptions(duelOptions(),old?.w||'fish')+'</select></label><label class="form-field">Black bot<select id="duel-b">'+selectOptions(duelOptions(),old?.b||'fishmax')+'</select></label><label class="form-field">Move delay<select id="duel-delay">'+selectOptions([['150','Fast'],['500','Normal'],['1200','Slow'],['2500','Very slow']],String(old?.delay||500))+'</select></label><label class="check-row"><input id="duel-current" type="checkbox" '+(old?'checked':'')+'> Use current board (keep custom pieces)</label><label class="form-field">Side to move on current board<select id="duel-turn">'+selectOptions([['w','White'],['b','Black']],old?.turn||'w')+'</select></label><label class="check-row"><input id="duel-marks" type="checkbox" '+(prefs.marks?'checked':'')+'> On-board move rating badges</label><label class="check-row"><input id="duel-cinematic" type="checkbox" '+(prefs.cinematic?'checked':'')+'> Cinematic move effects</label><p class="dialog-note">Ratings are illustrative difficulty labels, not measured Elo. Stockfish variants use the bundled engine on compatible boards; other profiles use the sandbox engine.</p><div class="dialog-actions"><button class="secondary" id="duel-cancel">Cancel</button><button class="primary" id="duel-start">Start match</button></div>','duel')
   $('duel-cancel').onclick=()=>modal.close()
   $('duel-start').onclick=()=>{
     const keep=$('duel-current').checked,w=$('duel-w').value,b=$('duel-b').value,delay=Number($('duel-delay').value),turn=keep?$('duel-turn').value:'w'
+    prefs.marks=$('duel-marks').checked;prefs.cinematic=$('duel-cinematic').checked
     checkpoint();if(!keep)game=fresh();else beginRealityTimeline(game)
     game.result=null;game.pending=false;game.doubleTurn=0;game.frozenTurns=0;game.checkmateImmunity=false;game.bossState={};game.bossActionStreak=null;game.bossRecentActions=[];game.bossHoleUntil=0;game.realityFlipUntil=0;game.realityFlipNeedsAction=false
     game.duel={w,b,delay,turn,plies:0,half:0,positions:[duelKey(game,turn)]};game.view='w';game.side='w';spawnColor='w';mode='move';resetSelection();modal.close();duelRunning=true;save();render();scheduleDuel()
@@ -237,7 +239,7 @@ function log(text, by = 'You') {
 let activeReview = null
 async function reviewQueue() {
   if (activeReview) return
-  const next = game.logs.find((entry) => entry.search)
+  const next = [...game.logs].reverse().find((entry) => entry.search)
   if (!next) return
   const { id, search } = next
   activeReview = compareMove(search.fen, search.played, search.alternatives)
@@ -253,7 +255,7 @@ async function reviewQueue() {
     }
     save()
     paintReview()
-    revealGrade(game.logs.find(x=>x.id===id))
+    if(game.logs.at(-1)?.id===id)revealGrade(game.logs.at(-1))
     if (modal.open && dialogPage === 'history') showHistory()
   } finally {
     activeReview = null
@@ -266,30 +268,32 @@ function recordPly(before, action, actor, nextSide, text, by) {
   if(!game.duel&&isBoss(prefs.bot)&&game.result?.winner===other(game.side)&&bossInfo(game,other(game.side)).turns<BOSS_GRACE)game.result=null
   if(!game.duel&&isBoss(prefs.bot)&&game.result?.winner===game.side&&bossInfo(game,other(game.side)).immune&&bossHasRoyal(game,other(game.side)))game.result=null
   const entry = log(text, by)
-  const assessment = reviewMove(before, game, action, actor, game.result)
-  Object.assign(entry, assessment, { id: crypto.randomUUID(), sq: action.to || action.from, fx: { from: action.from, to: action.to, power: action.power, capture: !!before.b[action.to], promotion: !!action.promotion } })
-  if (assessment.search) reviewQueue()
+  const assessment = reviewAction(before, game, action, actor, game.result)
+  annotateAction(entry,before,action,actor,assessment)
 }
-
-function gradeChip(entry) {
-  if (!entry?.grade) return ''
-  if (entry.search) return '<span class="grade-chip grade-pending">Reviewing…</span>'
-  const [title, mark] = grades[entry.grade.key]
-  return (
-    '<span class="grade-chip grade-' + entry.grade.key + '"><i>' + mark + '</i>' + title + '</span>'
-  )
+function annotateAction(entry,before,action,actor,assessment=reviewAction(before,game,action,actor,game.result)){
+  const sq=action.to||action.from||null
+  Object.assign(entry,assessment,{id:crypto.randomUUID(),sq,actor,fx:{from:action.from,to:action.to,power:action.power,capture:!!before.b[action.to],promotion:!!action.promotion}})
+  if(game.duel)for(const old of game.logs)if(old!==entry&&old.search)delete old.search
+  if(assessment.search)reviewQueue()
+}
+function gradeChip(entry){
+  const d=displayGrade(entry)
+  if(!d)return ''
+  if(d.pending)return '<span class="grade-chip grade-pending">Reviewing…</span>'
+  return '<span class="grade-chip grade-'+d.key+'"><i>'+d.mark+'</i>'+esc(d.title)+(d.estimated?' · estimate':'')+'</span>'
 }
 
 function revealGrade(entry) {
   if (!entry?.id || !entry.grade || entry.search || revealed.has(entry.id)) return
   revealed.add(entry.id)
-  const k = entry.grade.key
-  if (!prefs.effects || !prefs.cinematic || !['brilliant','great','blunder','miss','winning'].includes(k)) return
-  const [title,mark] = grades[k]
+  const d=displayGrade(entry),k=d.key
+  if (!prefs.effects || !prefs.cinematic || !['brilliant','illegalBrilliant','great','blunder','miss','winning'].includes(k)) return
+  const {title,mark}=d
   board.querySelector('.grade-cinematic')?.remove()
   const overlay = document.createElement('div')
   overlay.className = 'grade-cinematic grade-' + k
-  overlay.innerHTML = '<div class="grade-hero"><span>'+mark+'</span><strong>'+title+'</strong></div>'
+  overlay.innerHTML = '<div class="grade-hero"><span>'+mark+'</span><strong>'+title+'</strong>'+(d.estimated?'<small>Sandbox estimate</small>':'')+'</div>'
   board.append(overlay)
   setTimeout(()=>overlay.remove(),1400)
   if (prefs.sound) {
@@ -305,46 +309,23 @@ function revealGrade(entry) {
     } catch {}
   }
 }
-function paintReview() {
-  const last = [...game.logs].reverse().find((item) => item.grade && item.by === 'You')
-  const box = $('move-review')
-  box.hidden = !last
-  if (last) {
-    box.innerHTML =
-      gradeChip(last) +
-      '<div><strong>' +
-      esc(last.text) +
-      '</strong><p>' +
-      esc(
-        last.search ? 'Stockfish is comparing your move with its best line.' : last.grade.detail,
-      ) +
-      '</p></div><small>' +
-      esc(last.search ? '' : last.grade.source + (Number.isFinite(last.grade.accuracy) ? ' · ' + last.grade.accuracy.toFixed(1) + '% expected-score retention' : '')) +
-      '</small>'
+function paintReview(){
+  const last=[...game.logs].reverse().find(item=>item.grade)
+  const box=$('move-review')
+  box.hidden=!last
+  if(last){
+    box.innerHTML=gradeChip(last)+'<div><strong>'+esc(last.by+' · '+last.text)+'</strong><p>'+esc(last.search?'Stockfish is reviewing the move.':last.grade.detail)+'</p></div><small>'+esc(last.search?'Pending engine review':last.grade.source+(Number.isFinite(last.grade.accuracy)?' · '+last.grade.accuracy.toFixed(1)+'% expected-score retention':''))+'</small>'
   }
-  board.querySelectorAll('.grade-pin').forEach((pin) => pin.remove())
-  // Preserve the player’s marker through the bot reply, unless that reply changed the square.
-  const recent = game.logs.slice(-2)
-  const marked =
-    recent.at(-1)?.by === 'You'
-      ? recent.at(-1)
-      : recent.at(-1)?.grade && !game.last.includes(recent[0]?.sq)
-        ? recent[0]
-        : null
-  if (!marked?.grade || marked.search || marked.by !== 'You' || !game.b[marked.sq]) return
-  const square = board.querySelector('[data-sq="' + marked.sq + '"]')
-  const [title, mark] = grades[marked.grade.key]
-  if (square)
-    square.insertAdjacentHTML(
-      'beforeend',
-      '<span aria-hidden="true" class="grade-pin grade-' +
-        marked.grade.key +
-        '" title="' +
-        title +
-        '">' +
-        mark +
-        '</span>',
-    )
+  board.querySelectorAll('.grade-pin').forEach(pin=>pin.remove())
+  board.querySelectorAll('.rated-square').forEach(s=>{s.classList.remove('rated-square');for(const k of Object.keys(grades))s.classList.remove('grade-'+k)})
+  if(!prefs.marks)return
+  const marked=latestBoardGrade(game.logs)
+  if(!marked)return
+  const d=displayGrade(marked),square=board.querySelector('[data-sq="'+marked.sq+'"]')
+  if(!square||!d)return
+  square.classList.add('rated-square','grade-'+d.key)
+  const title=d.title+(d.pending?' · engine review pending':d.estimated?' · sandbox estimate':'')
+  square.insertAdjacentHTML('beforeend','<span class="grade-pin grade-'+d.key+(d.pending?' grade-provisional':'')+'" title="'+esc(title)+'" aria-label="'+esc(title)+'">'+esc(d.mark)+'</span>')
 }
 
 function resultTitle() {
@@ -908,7 +889,7 @@ async function bossTurn(token){
   const count=bossInfo(game,actor).turns
   game.result=count>=BOSS_GRACE?bossOutcome(game,actor,catalog()):null
   const entry=log(bossDescription(action),botTitle()+(id==='illegal'&&suggestion?' · Stockfish-assisted':''))
-  Object.assign(entry,{id:crypto.randomUUID(),sq:action.to||action.from,fx:{from:action.from,to:action.to,power:action.power||(action.normal?undefined:'illegal'),capture:!!before.b[action.to],promotion:!!action.promotion}})
+  annotateAction(entry,before,action,actor)
   const extra=action.power==='double'||bossConsumeFreeze(game,game.side)
   game.pending=!!(extra&&!game.result)
   resetSelection();notice=count<BOSS_GRACE?'Boss grace period · '+count+'/'+BOSS_GRACE+' moves':extra?'Boss takes another turn':''
@@ -1049,7 +1030,7 @@ function showHelp() {
     ],
     [
       'Move review',
-      'Stockfish compares ordinary moves with its best line. A brilliant move offers material while keeping a strong evaluation. Freeform moves and powers get a sandbox estimate based on material and immediate threats. Sandbox estimates are labeled separately from verified engine grades. Brilliant requires an engine-supported sacrifice. Open Move history for both sides’ grades.',
+      'Stockfish compares ordinary moves with its best line. A brilliant move offers material while keeping a strong evaluation. Freeform moves and powers get a sandbox estimate based on material and immediate threats. Sandbox estimates are labeled separately from verified engine grades. Brilliant engine grades require an engine-supported sacrifice. Purple illegal-brilliant marks are labeled sandbox estimates. Open Move history for both sides’ grades.',
     ],
     [
       'Move anywhere',
@@ -1106,6 +1087,7 @@ function settings() {
         ['sound', 'Move sounds'],
         ['effects', 'Animated moves and powers'],
         ['cinematic', 'Cinematic move rating reveals'],
+        ['marks','On-board move rating badges'],
       ]
         .map(
           ([k, t]) =>
@@ -1124,7 +1106,7 @@ function settings() {
   function apply() {
     cancelBot()
     readBotFields()
-    for (const k of ['auto', 'coords', 'sound', 'effects', 'cinematic']) prefs[k] = $('pref-' + k).checked
+    for (const k of ['auto', 'coords', 'sound', 'effects', 'cinematic','marks']) prefs[k] = $('pref-' + k).checked
     prefs.theme = $('theme').value
     game.pending = game.pending && prefs.auto
     save()

@@ -1,4 +1,4 @@
-import { orthodox, movement, other, boardSize } from './game.mjs'
+import { orthodox, movement, other, boardSize } from './game.mjs?v=boss-11'
 
 const value = { p: 1, n: 3, b: 3.2, r: 5, q: 9, k: 0 }
 const worth = (piece) => (piece ? (value[piece.t] ?? 6) : 0)
@@ -8,6 +8,7 @@ const points = (board, side) =>
 export const grades = {
   brilliant: ['Brilliant', '!!'],
   great: ['Great', '!'],
+  illegalBrilliant: ['Illegal brilliant', '!!'],
   miss: ['Miss', '×'],
   sandbox: ['Sandbox move', '✦'],
   best: ['Best', '★'],
@@ -105,7 +106,7 @@ export function reviewMove(before, after, action, actor, outcome) {
     )
   else if (
     !power &&
-    mover.c === actor &&
+    mover?.c === actor &&
     !threatened &&
     change >= 0 &&
     to &&
@@ -123,7 +124,7 @@ export function reviewMove(before, after, action, actor, outcome) {
       change > 0.5 ? 'Your side gains material.' : 'The material balance holds.',
       'Sandbox estimate',
     )
-  const sandbox = { grade: grade('sandbox', quick.detail, 'Sandbox estimate · ' + grades[quick.key][0]) }
+  const sandbox = { grade: {...grade('sandbox', quick.detail, 'Sandbox estimate · ' + grades[quick.key][0]), visualKey:quick.key==='brilliant'?'illegalBrilliant':quick.key} }
   if (power || !mover || mover.c !== actor || before.doubleTurn) return sandbox
   const chess = orthodox(before, actor)
   const candidate = chess
@@ -162,4 +163,24 @@ export function engineGrade(search, answer) {
   if (loss<=.10) return result('inaccuracy','A stronger continuation was available.'+explanation)
   if (loss<=.20) return result('mistake','A significant drop in expected score.'+explanation)
   return result('blunder','A major loss of expected score.'+explanation)
+}
+
+export function displayGrade(entry){
+  if(!entry?.grade)return null
+  const key=entry.grade.visualKey||entry.grade.key
+  const [title,mark]=grades[key]||grades.sandbox
+  return {key,title,mark,estimated:entry.grade.key==='sandbox',pending:!!entry.search}
+}
+export function reviewAction(before,after,action,actor,outcome){
+  const result=reviewMove(before,after,action,actor,outcome)
+  if(result.grade?.key==='sandbox'&&!result.search){
+    const gained=points(after.b,actor)-points(before.b,actor)
+    if(gained>=9)result.grade.visualKey='illegalBrilliant'
+  }
+  return result
+}
+export function latestBoardGrade(logs){
+  const entry=logs.at(-1)
+  if(!entry?.grade||!entry.sq||!entry.fx)return null
+  return entry
 }
