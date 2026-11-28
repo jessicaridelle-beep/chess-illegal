@@ -1694,3 +1694,6 @@ input[type='checkbox'] {
 #music-panel:has(#music-video:not([hidden])){min-width:200px}
 /* Keep a loaded video player visible; the user's own pause/stop controls remain accessible. */
 .music-panel:not([open]) #music-video{display:none}
+
+#music-watch{color:var(--lime);font-weight:600;font-size:.85rem}
+#music-video iframe{min-width:200px;min-height:200px}

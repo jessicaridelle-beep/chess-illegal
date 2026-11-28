@@ -1,4 +1,4 @@
-import { initMusic } from './music.mjs?v=music-30'
+import { initMusic } from './music.mjs?v=music-31'
 import { actionHold, delayForPresentation, extendPresentation, preparedRatingMatches } from './presentation.mjs?v=tempo-28'
 import { isMate, isBrilliant, playFinale } from './finale.mjs?v=finale-27'
 import { paintEditPaths, clearEditPaths, burstEdit, editPaths, syncBadgeTint } from './editfx.mjs?v=tint-29'
