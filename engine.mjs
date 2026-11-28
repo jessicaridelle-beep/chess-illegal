@@ -46,9 +46,9 @@ function engineJob(requests, skill, onComplete) {
 }
 
 export function stockfishMove(fen, level, allowed) {
-  const depths = { beginner:1,easy:3,medium:7,hard:12,master:18,relaxed:3,balanced:8,sharp:12 }
-  const skills = { beginner:0,easy:3,medium:9,hard:16,master:20,relaxed:1,balanced:9,sharp:20 }
-  const go = 'go depth ' + depths[level] + ' movetime ' + (['master','sharp'].includes(level) ? 1600 : level==='hard'?700:350)
+  const depths = { max:23,beginner:1,easy:3,medium:7,hard:12,master:18,relaxed:3,balanced:8,sharp:12 }
+  const skills = { max:20,beginner:0,easy:3,medium:9,hard:16,master:20,relaxed:1,balanced:9,sharp:20 }
+  const go = 'go depth ' + depths[level] + ' movetime ' + (level==='max'?3000:['master','sharp'].includes(level) ? 1600 : level==='hard'?700:350)
   return engineJob(
     [{ fen, go }],
     skills[level],

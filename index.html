@@ -10,7 +10,7 @@
       content="An unrestricted chess playground against bots. Move, spawn, delete, and forge your own pieces."
     />
     <link rel="icon" href="art/brand.svg" />
-    <link rel="stylesheet" href="style.css?v=reality-4" />
+    <link rel="stylesheet" href="style.css?v=duel-5" />
   </head>
   <body>
     <header class="top">
@@ -42,6 +42,7 @@
           <p>Checkmate the bot or capture its last king.</p>
         </div>
         <button class="secondary" id="play-ai-god" style="border-color:#a88aff;color:#b5fcf1" type="button">Play AI GOD · 9999</button>
+<button class="secondary" id="duel-open" type="button"><i data-icon="cpu"></i> Bot vs Bot</button>
 <button class="primary" id="new"><i data-icon="plus"></i>New game</button>
       </div>
       <div class="layout">
@@ -74,7 +75,7 @@
             <div class="avatar your-avatar"><i data-icon="user"></i></div>
             <div class="player">
               <div class="player-name">
-                <strong>You <span class="player-elo" title="Custom sandbox rating" style="color:#b4e879;font-weight:700">(9999)</span></strong><span class="side-dot" id="side-dot"></span>
+                <strong><span id="player-name-label">You</span> <span id="player-rating" class="player-elo" title="Custom sandbox rating" style="color:#b4e879;font-weight:700">(9999)</span></strong><span class="side-dot" id="side-dot"></span>
               </div>
               <small id="player-side">White pieces</small>
             </div>
@@ -98,6 +99,7 @@
               </button>
             </div>
           </div>
+          <section id="duel-panel" class="duel-panel" hidden><div class="duel-head"><strong>BOT VS BOT</strong><small id="duel-count"></small></div><div class="duel-match"><span>White<br><b id="duel-white"></b></span><strong>VS</strong><span>Black<br><b id="duel-black"></b></span></div><p id="duel-state" role="status"></p><div class="duel-actions"><button id="duel-toggle" class="primary">Resume</button><button id="duel-step" class="secondary">Next move</button><button id="duel-config" class="secondary">Configure</button><button id="duel-exit" class="secondary">Exit</button></div></section>
           <div id="power-area"></div>
           <div id="move-review" class="move-review" aria-live="polite" hidden></div>
         </section>
@@ -152,6 +154,6 @@
       </div>
       <div id="dialog-content"></div>
     </dialog>
-    <script type="module" src="app.mjs?v=reality-4"></script>
+    <script type="module" src="app.mjs?v=duel-5"></script>
   </body>
 </html>

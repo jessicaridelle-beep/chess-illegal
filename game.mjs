@@ -1,5 +1,5 @@
 import { Chess, validateFen } from './vendor/chess.mjs'
-import { names, pieceAbilities, originals } from './ui.mjs?v=reality-4'
+import { names, pieceAbilities, originals } from './ui.mjs?v=duel-5'
 export const files = 'abcdefgh'
 export const ranks = [8, 7, 6, 5, 4, 3, 2, 1]
 export const other = (c) => (c === 'w' ? 'b' : 'w')
@@ -282,8 +282,8 @@ export function threatenedKings(s, catalog = []) {
     if (!isRoyal(p) || isDivine(p) || (p.immortal && p.c===s.side)) continue
     const attacked = Object.entries(s.b).some(([from,q]) => {
       if (q.c === p.c) return false
-      const skills=q.c===s.side?pieceAbilities(q,catalog):[]
-      if(movement(s.b,from,sq,boardSize(s),s.destroyed||[],q.c===s.side))return true
+      const skills=!s.duelMode&&q.c===s.side?pieceAbilities(q,catalog):[]
+      if(movement(s.b,from,sq,boardSize(s),s.destroyed||[],!s.duelMode&&q.c===s.side))return true
       for(const power of skills){
         if(['nova','radiance','beam','diagonal','comet','shockwave','consume'].includes(power)&&powerTargets(s,from,power).includes(sq))return true
         if(power==='leap'){
@@ -394,20 +394,20 @@ export function sandboxReply(s,catalog,level,profile='adaptive',options={}){
     const trial=legalBotTrial(s,a,c,catalog,standard)
     if(!trial)continue
     let score=botPosition(trial,c,catalog,profile)-base
-    const noise=({beginner:12,easy:5,medium:1.6,hard:.35,master:.08,relaxed:5,balanced:1.6,sharp:.08})[level]??1.6
+    const noise=({max:.02,beginner:12,easy:5,medium:1.6,hard:.35,master:.08,relaxed:5,balanced:1.6,sharp:.08})[level]??1.6
     ranked.push({a,trial,score:score+Math.random()*noise})
   }
   ranked.sort((a,b)=>b.score-a.score)
   if(!ranked.length)return null
   // Limited one-ply reply search on the strongest candidates. This includes every
   // registered custom ability, and is bounded on larger boards.
-  const depth=({beginner:1,easy:2,medium:4,hard:7,master:12,relaxed:2,balanced:4,sharp:12})[level]??4
+  const depth=({max:16,beginner:1,easy:2,medium:4,hard:7,master:12,relaxed:2,balanced:4,sharp:12})[level]??4
   for(const item of ranked.slice(0,depth)){
     const {trial}=item
     let danger=0
     for(const [from,p] of Object.entries(trial.b)){
       if(p.c!==c)continue
-      const attacked=Object.entries(trial.b).some(([sq,q])=>q.c===opponent&&(movement(trial.b,sq,from,boardSize(trial),trial.destroyed||[],q.c===trial.side)||powerTargets(trial,sq,catalog.find(x=>x.id===q.t)?.power).includes(from)&&['nova','radiance','beam'].includes(catalog.find(x=>x.id===q.t)?.power)))
+      const attacked=Object.entries(trial.b).some(([sq,q])=>q.c===opponent&&(movement(trial.b,sq,from,boardSize(trial),trial.destroyed||[],!trial.duelMode&&q.c===trial.side)||powerTargets(trial,sq,catalog.find(x=>x.id===q.t)?.power).includes(from)&&['nova','radiance','beam'].includes(catalog.find(x=>x.id===q.t)?.power)))
       if(attacked)danger=Math.max(danger,strategicValue(p,catalog))
     }
     item.final=item.score-danger*(profile==='guardian'?.95:['beginner','easy','relaxed'].includes(level)?.2:level==='master'?.9:.65)
