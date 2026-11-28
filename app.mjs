@@ -1,10 +1,10 @@
-import {initReferenceArt} from './reference-art.mjs?v=reference-38'
-import { promotedPiece, playPromotion } from './promotion.mjs?v=reference-38'
+import {initReferenceArt} from './reference-art.mjs?v=cinema-39'
+import { promotedPiece, playPromotion, startPromotionAftermath, clearPromotionAftermath, syncPromotionAftermath } from './promotion.mjs?v=cinema-39'
 import { initMusic } from './music.mjs?v=music-31'
 import { actionHold, delayForPresentation, extendPresentation, preparedRatingMatches } from './presentation.mjs?v=tempo-28'
-import { isMate, isBrilliant, isGreat, canPlayFinale, playFinale } from './finale.mjs?v=reference-38'
+import { isMate, isBrilliant, isGreat, canPlayFinale, playFinale } from './finale.mjs?v=cinema-39'
 import { paintEditPaths, clearEditPaths, burstEdit, editPaths, syncBadgeTint, tacticalTrails, geometryAttack } from './editfx.mjs?v=impact-34'
-import { describeEffect, effectDuration, unlockSound, playEffectSound, renderEffects, playFinaleSound, playPromotionSound } from './effects.mjs?v=promo-35'
+import { describeEffect, effectDuration, unlockSound, playEffectSound, renderEffects, playFinaleSound, playPromotionSound } from './effects.mjs?v=cinema-39'
 import { icon, names, abilities, powers, originals, pieceArt, pieceAbilities, movementDescription, passiveAbilities, areaAbilities, escapeHtml as esc } from './ui.mjs?v=boss-11'
 import {
   fresh,
@@ -125,6 +125,7 @@ function lockPresentation(duration){
   board.dataset.presenting='true'
 }
 function resetPresentation(){
+  clearPromotionAftermath(board)
   clearTimeout(promotionTimer);promotionActive?.remove();promotionActive=null
   presentationUntil=finaleUntil=0;clearTimeout(presentationTimer);clearTimeout(finaleResultTimer);board.dataset.presenting='false';board.querySelector('.finale-layer')?.remove()
 }
@@ -359,19 +360,24 @@ function gradeChip(entry){
 }
 
 function startPromotion(piece,id,preview=false){
-  const result=playPromotion(document.body,piece,{art:(t,c)=>pieceArt(t,c,catalog()),label,preview,reduced:!!globalThis.matchMedia?.('(prefers-reduced-motion: reduce)').matches})
+  const reduced=!!globalThis.matchMedia?.('(prefers-reduced-motion: reduce)').matches
+  clearPromotionAftermath(board)
+  const result=playPromotion(document.body,piece,{art:(t,c)=>pieceArt(t,c,catalog()),label,preview,reduced,board,size:boardSize(game),view:game.view})
   if(!result)return false
   promotionActive=result.scene
   if(!preview)lastPromotion=id
   finaleUntil=Date.now()+result.duration
   lockPresentation(result.duration+100)
-  if(prefs.sound)playPromotionSound()
+  if(prefs.sound)playPromotionSound(reduced)
   clearTimeout(promotionTimer)
   promotionTimer=setTimeout(()=>{
     result.scene.remove()
     if(promotionActive!==result.scene)return
     promotionActive=null
+    if(!reduced&&(preview||game.logs.at(-1)?.id===id))startPromotionAftermath(board,piece,{size:boardSize(game),view:game.view})
     if(!preview&&game.logs.at(-1)?.id===id){
+      // Promotion itself is the complete move cinematic; only a terminal mate gets its separate finisher.
+      if(!isMate(game.result))lastFinale=id
       maybeFinale(game.logs.at(-1))
       if(game.result)showResultAfterFinale()
       else if(game.duel&&duelRunning)scheduleDuel()
@@ -395,7 +401,7 @@ function maybeFinale(entry=game.logs.at(-1)){
 function previewPromotion(type){
   if(duelBusy||game.pending||waitingForRating(game.logs.at(-1))||promotionActive||Date.now()<finaleUntil){$('preview-status').textContent='Wait for the current move to finish.';return}
   if(game.duel)pauseDuel()
-  startPromotion({t:type,c:game.view},'preview-promotion',true)
+  startPromotion({t:type,c:game.view,sq:'e'+(game.view==='w'?boardSize(game):1)},'preview-promotion',true)
   $('preview-status').textContent='Promotion preview only; your game is unchanged.'
 }
 function previewFinale(mate=false,great=false,type='q'){
@@ -825,6 +831,7 @@ function renderBoard() {
     board.insertAdjacentHTML('afterbegin',html)
   }else{board.innerHTML=html;if(scene)finaleUntil=0}
   board.dataset.mode = mode
+  syncPromotionAftermath(board,size,game.view)
   paintDestinations()
   if(animate){lockPresentation(actionHold(entry.fx,{effects:prefs.effects,reduced:!!globalThis.matchMedia?.('(prefers-reduced-motion: reduce)').matches}));renderEffects(board,entry.fx,{size,view:game.view,art:(t,c)=>pieceArt(t,c,catalog()),delay:game.duel?.delay||500})}
   paintAnnotations()

@@ -1,4 +1,4 @@
-import {referenceArt,referenceMate,makeReferenceImage} from './reference-art.mjs?v=reference-38'
+import {referenceArt,referenceMate,makeReferenceImage} from './reference-art.mjs?v=cinema-39'
 // Real board-state cinematics, not a prerecorded chess position.
 export const MATE_MS=4750,BRILLIANT_MS=3200
 export const LAND_MS=1700,SHATTER_MS=2350

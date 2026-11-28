@@ -1,7 +1,9 @@
 // Private browser-local art. No files are uploaded to a server.
 const KEY='chessillegal.referenceart.v1'
 export const slots={'promotion-b':'Bishop promotion','promotion-r':'Rook promotion','promotion-n':'Knight promotion','promotion-q':'Queen promotion','brilliant':'Brilliant !!','great':'Great !','mate-b':'Bishop checkmate','mate':'Any other checkmate'}
+Object.assign(slots,{"promo-awake":"Pawn awakening","promo-star":"Purple starburst","promo-pawn-burst":"Pawn transformation burst","promo-meteor-alt":"Meteor first frame","promo-queen-magic":"Queen magic","promo-return":"Return light","mate-impact":"Extra checkmate impact reference","promo-return-alt":"Return impact","mate-royal":"Extra royal finisher reference","brilliant-alt":"Extra brilliant reference","promo-charge":"Transformation charge","promo-runes":"Purple magic circles","promo-reveal-n":"Knight transformation","promo-reveal-b":"Bishop transformation","promo-reveal-q":"Queen transformation","promo-reveal-b-alt":"Bishop alternate transformation","promo-reveal-r":"Rook transformation","promo-meteor-runes":"Meteor launch with circles","promo-meteor":"Meteor descent","promo-aftermath":"Board impact reference"})
 const names={'7979':'promotion-b','7981':'promotion-r','7980':'promotion-n','7982':'promotion-q','7985':'brilliant','7984':'mate-b','7983':'mate'}
+Object.assign(names,{"7988":"promo-awake","7989":"promo-star","7990":"promo-pawn-burst","7991":"promo-meteor-alt","7992":"promo-queen-magic","7993":"promo-return","7994":"mate-impact","7995":"promo-return-alt","7996":"mate-royal","7997":"brilliant-alt","7998":"promo-charge","7999":"promo-runes","8000":"promo-reveal-n","8001":"promo-reveal-b","8002":"promo-reveal-q","8003":"promo-reveal-b-alt","8004":"promo-reveal-r"})
 export function referenceSlot(filename){return names[String(filename).replace(/\.[^.]+$/,'')]||null}
 const validImage=value=>typeof value==='string'&&/^data:image\/(?:jpeg|png|webp);base64,[A-Za-z0-9+/=]+$/.test(value)
 let art={}
@@ -21,6 +23,14 @@ function persist(next){
   const json=JSON.stringify(next)
   if(json.length>3500000)throw Error('Image collection is too large. Choose smaller files.')
   localStorage.setItem(KEY,json);art=next
+}
+export function parseReferencePack(json){
+  const pack=JSON.parse(json)
+  if(pack?.format!=='chessillegal-original-art-v1'||!pack.images||typeof pack.images!=='object')throw Error('Not a Chess Illegal original-art pack.')
+  const next={}
+  for(const [key,value] of Object.entries(pack.images))if(Object.hasOwn(slots,key)&&validImage(value))next[key]=value
+  if(!Object.keys(next).length)throw Error('No supported pictures in this pack.')
+  return next
 }
 export function makeReferenceImage(root,src,cls,alt){
   if(!validImage(src))return null
@@ -42,5 +52,10 @@ export function initReferenceArt(root){
     }catch(e){refresh(e.message)}finally{batch.value='';batch.disabled=false}
   }
   $('reference-remove').onclick=()=>{try{const next={...art};delete next[select.value];persist(next);refresh('Image removed.')}catch(e){refresh(e.message)}}
+  const packInput=$('reference-pack')
+  if(packInput)packInput.onchange=async()=>{
+    const file=packInput.files?.[0];if(!file)return
+    try{if(file.size>3500000)throw Error('Pack too large.');const incoming=parseReferencePack(await file.text());persist({...art,...incoming});refresh('Imported '+Object.keys(incoming).length+' original pictures.')}catch(e){refresh(e.message)}finally{packInput.value=''}
+  }
   refresh()
 }

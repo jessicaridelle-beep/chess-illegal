@@ -1897,3 +1897,41 @@ input[type='checkbox'] {
 .finale-reference-mate{animation:reference-picture-in 2.85s linear 1.9s both}
 .finale-reference-grade{animation:reference-picture-in 1.5s linear 1.7s both}
 @keyframes reference-picture-in{0%{opacity:0}4%,96%{opacity:1}100%{opacity:0}}
+
+/* Seven-second promotion film. All original images remain unchanged and use contain. */
+.promotion-cinema{animation:promo-film-back 7s linear both}
+.promotion-cinema .promotion-frame{animation:promo-film-camera 7s ease-in-out both}
+.promotion-cinema .promotion-pawn{animation:promo-film-pawn 3.1s ease-in-out both}
+.promotion-cinema .promotion-hero{animation:promo-film-hero 2.2s ease-out 3s both}
+.promotion-cinema .promotion-arrow{animation-delay:calc(3.2s + var(--arrow-delay))}
+.promotion-cinema .promotion-aura{animation:promo-film-aura 5.2s ease-in-out both}
+.promotion-cinema .promotion-ring{animation-delay:2.9s}
+.promotion-cinema .promotion-particle{animation-delay:calc(2.85s + var(--pd))}
+.promotion-cinema .promotion-title{animation-delay:3.3s}
+.promotion-sigil{position:absolute;inset:5%;width:90%;height:90%;color:var(--promo-color);filter:drop-shadow(0 0 6px currentColor);animation:promo-sigil 4.9s ease-in-out both}
+.promotion-starburst{position:absolute;inset:0;pointer-events:none;z-index:3;animation:promo-starburst 1.15s ease-out 2.45s both}
+.promotion-star-ray{position:absolute;left:50%;top:48%;width:44%;height:8%;background:linear-gradient(90deg,#fff,var(--promo-color),transparent);clip-path:polygon(0 0,100% 50%,0 100%,12% 50%);transform-origin:left center;transform:translateY(-50%) rotate(var(--star-rotation));filter:blur(.5px)}
+.promotion-reference-frame{position:absolute;inset:0;z-index:12;background:#000;pointer-events:none;animation:promo-reference-frame var(--ref-length) linear var(--ref-start) both}
+.promotion-reference-frame img{object-fit:contain;filter:none;opacity:1}
+.promotion-landing{position:fixed;inset:0;z-index:20;pointer-events:none;animation:promo-landing-show 650ms linear 6.35s both}
+.promotion-comet{position:absolute;left:var(--land-x);top:var(--land-y);width:var(--land-size);aspect-ratio:1;background:radial-gradient(circle,#fff 5%,var(--promo-color) 25%,transparent 68%);filter:drop-shadow(0 0 14px var(--promo-color));animation:promo-comet-fall .36s ease-in 6.1s both}
+.promotion-land-ring{position:absolute;left:var(--land-x);top:var(--land-y);width:var(--land-size);aspect-ratio:1;border:3px solid var(--promo-color);border-radius:50%;box-shadow:0 0 12px var(--promo-color);animation:promo-land-ring .5s ease-out calc(6.48s + var(--land-delay)) both}
+.promotion-land-spark{position:absolute;left:var(--land-x);top:var(--land-y);width:5px;height:5px;background:#fff;border-radius:50%;box-shadow:0 0 7px var(--promo-color);animation:promo-land-spark .5s ease-out 6.48s both}
+@keyframes promo-film-back{0%{opacity:0}4%,87%{opacity:1}93%{opacity:.83}100%{opacity:0}}
+@keyframes promo-film-camera{0%{transform:scale(.7) rotate(-5deg)}25%{transform:scale(1.05) rotate(4deg)}45%{transform:scale(.95) rotate(-3deg)}72%{transform:scale(1.05)}100%{transform:scale(.78)}}
+@keyframes promo-film-pawn{0%{opacity:0;transform:translate(-50%,-20%) scale(.6)}20%{opacity:1;transform:translate(-50%,-55%) scale(.92)}75%{opacity:1;transform:translate(-50%,-65%) scale(1.05)}100%{opacity:0;transform:translate(-50%,-50%) scale(.25)}}
+@keyframes promo-film-hero{0%{opacity:0;transform:translate(-50%,-50%) rotate(-24deg) scale(.25)}25%{opacity:1;transform:translate(-50%,-50%) rotate(5deg) scale(1.12)}80%{opacity:1;transform:translate(-50%,-50%) scale(1)}100%{opacity:0;transform:translate(-50%,-50%) scale(.3)}}
+@keyframes promo-film-aura{0%{opacity:0;transform:scale(.2)}45%{opacity:.65;transform:scale(.9)}62%{opacity:.85;transform:scale(1.3)}100%{opacity:.15;transform:scale(.8)}}
+@keyframes promo-sigil{0%{opacity:0;transform:rotate(-60deg) scale(.55)}25%{opacity:.65}65%{opacity:.85;transform:rotate(70deg) scale(1)}100%{opacity:0;transform:rotate(125deg) scale(1.1)}}
+@keyframes promo-starburst{0%{opacity:0;transform:scale(.15)}30%{opacity:.9;transform:scale(1.15)}100%{opacity:0;transform:scale(1.35)}}
+@keyframes promo-reference-frame{0%{opacity:0}8%,92%{opacity:1}100%{opacity:0}}
+@keyframes promo-landing-show{0%,100%{opacity:0}12%,75%{opacity:1}}
+@keyframes promo-comet-fall{0%{opacity:0;transform:translate(20vw,-45vh) scale(2)}25%{opacity:1}100%{opacity:1;transform:translate(-50%,-50%) scale(.8)}}
+@keyframes promo-land-ring{0%{opacity:.7;transform:translate(-50%,-50%) scale(.4)}100%{opacity:0;transform:translate(-50%,-50%) scale(4)}}
+@keyframes promo-land-spark{0%{opacity:.9;transform:rotate(var(--land-angle))}100%{opacity:0;transform:rotate(var(--land-angle)) translateX(var(--land-distance))}}
+/* Persistent live-board atmosphere; independent of moves and bot timing. */
+.board.promotion-aftermath::after{content:'';position:absolute;inset:0;z-index:5;pointer-events:none;background:radial-gradient(circle at var(--after-x) var(--after-y),color-mix(in srgb,var(--after-color) 48%,transparent),transparent 40%),linear-gradient(130deg,color-mix(in srgb,var(--after-color) 16%,transparent),transparent 48%,#8caaff18);box-shadow:inset 0 0 45px color-mix(in srgb,var(--after-color) 48%,transparent);animation:promo-aftermath-fade 10s linear both}
+.board.promotion-aftermath::before{content:'';position:absolute;inset:0;z-index:5;pointer-events:none;background-image:radial-gradient(circle,#fff9 0 1px,transparent 2px),radial-gradient(circle,var(--after-color) 0 1px,transparent 2px);background-size:61px 67px,97px 83px;animation:promo-aftermath-stars 10s linear both}
+@keyframes promo-aftermath-fade{0%{opacity:.9}25%{opacity:.65}70%{opacity:.3}100%{opacity:0}}
+@keyframes promo-aftermath-stars{0%{opacity:.5;background-position:0 0,0 0}100%{opacity:0;background-position:40px -90px,-60px -70px}}
+@media(prefers-reduced-motion:reduce){.board.promotion-aftermath::before,.board.promotion-aftermath::after{display:none}.promotion-cinema .promotion-reference-frame,.promotion-cinema .promotion-landing{display:none}}

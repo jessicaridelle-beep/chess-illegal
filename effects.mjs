@@ -144,7 +144,17 @@ export function playFinaleSound(mate){
   }catch{return false}
 }
 
-export function playPromotionSound(){
+export function playPromotionSound(reduced=false){
   const a=unlockSound();if(!a)return false
+  if(!reduced)try{
+    const t=a.currentTime+.015
+    tone(a,t,75,170,1.3,.045,'sine');tone(a,t+.55,160,590,1.75,.033,'triangle')
+    tone(a,t+1.6,230,880,1.1,.035,'sine')
+    noise(a,t+2.95,.28,.075,3000);tone(a,t+2.95,150,55,.45,.09,'sine')
+    ;[392,523.25,659.25,783.99].forEach((hz,i)=>tone(a,t+3.12+i*.16,hz,hz,.65,.045,'triangle'))
+    tone(a,t+5,860,110,1.4,.035,'triangle')
+    tone(a,t+6.48,125,35,.36,.10,'sine');noise(a,t+6.48,.24,.055,2200)
+    return true
+  }catch{return false}
   try{const t=a.currentTime+.015;tone(a,t,110,440,.65,.065,'sine');tone(a,t+.35,330,880,.4,.045,'triangle');noise(a,t+.78,.18,.07,3500);tone(a,t+.78,150,55,.28,.10,'sine');[392,523.25,659.25,783.99].forEach((hz,i)=>tone(a,t+.83+i*.10,hz,hz,.45,.05,'triangle'));return true}catch{return false}
 }
