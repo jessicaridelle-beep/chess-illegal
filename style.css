@@ -1935,3 +1935,14 @@ input[type='checkbox'] {
 @keyframes promo-aftermath-fade{0%{opacity:.9}25%{opacity:.65}70%{opacity:.3}100%{opacity:0}}
 @keyframes promo-aftermath-stars{0%{opacity:.5;background-position:0 0,0 0}100%{opacity:0;background-position:40px -90px,-60px -70px}}
 @media(prefers-reduced-motion:reduce){.board.promotion-aftermath::before,.board.promotion-aftermath::after{display:none}.promotion-cinema .promotion-reference-frame,.promotion-cinema .promotion-landing{display:none}}
+
+/* Expose the real board for the landing, while the independent comet remains visible. */
+.promotion-cinema{background:transparent;animation:none}
+.promotion-cinema::before{content:'';position:absolute;inset:0;z-index:-1;background:radial-gradient(ellipse at 50% 48%,color-mix(in srgb,var(--promo-color) 25%,#151720),#171920 57%,#0d0e13);animation:promo-scene-exit 7s linear both}
+.promotion-cinema .promotion-floor,.promotion-cinema .promotion-lineup{animation:promo-props-exit 7s linear both}
+.promotion-cinema .promotion-frame{animation:promo-film-camera 7s ease-in-out both,promo-props-exit 7s linear both}
+.promotion-cinema .promotion-title{animation:promo-title .5s ease 3.3s both,promo-title-exit .35s ease 5.75s forwards}
+.promotion-landing{animation:promo-landing-show 900ms linear 6.1s both}
+@keyframes promo-scene-exit{0%{opacity:0}4%,84%{opacity:1}92%,100%{opacity:0}}
+@keyframes promo-props-exit{0%{opacity:0}6%,80%{opacity:1}88%,100%{opacity:0}}
+@keyframes promo-title-exit{to{opacity:0}}

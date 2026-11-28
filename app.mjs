@@ -401,6 +401,7 @@ function maybeFinale(entry=game.logs.at(-1)){
 function previewPromotion(type){
   if(duelBusy||game.pending||waitingForRating(game.logs.at(-1))||promotionActive||Date.now()<finaleUntil){$('preview-status').textContent='Wait for the current move to finish.';return}
   if(game.duel)pauseDuel()
+  board.scrollIntoView({block:'nearest',behavior:'instant'})
   startPromotion({t:type,c:game.view,sq:'e'+(game.view==='w'?boardSize(game):1)},'preview-promotion',true)
   $('preview-status').textContent='Promotion preview only; your game is unchanged.'
 }
