@@ -1,5 +1,5 @@
 import { Chess, validateFen } from './vendor/chess.mjs'
-import { names, pieceAbilities, originals } from './ui.mjs?v=boss-8'
+import { names, pieceAbilities, originals } from './ui.mjs?v=boss-9'
 export const files = 'abcdefgh'
 export const ranks = [8, 7, 6, 5, 4, 3, 2, 1]
 export const other = (c) => (c === 'w' ? 'b' : 'w')
@@ -492,13 +492,35 @@ export const bossInfo=(s,c)=>s.bossState?.[c]||{turns:0,freeze:0,lock:0,immune:f
 // Shared and per-boss anti-spam streaks count only completed actions.
 export const bossActionKind=a=>a?.power||(a?.normal?'legal':'move')
 export const bossRepeatLimit=kind=>kind==='legal'?Infinity:['move','delete','spawn'].includes(kind)?3:1
+// Related abilities share a budget; e.g. cloning and summoning cannot evade the spawn cap.
+export const bossFamily=kind=>({
+  clone:'spawn',mirror:'spawn',replicate:'spawn',echo:'spawn',
+  nova:'delete',shockwave:'delete',beam:'delete',diagonal:'delete',comet:'delete',hole:'delete',destroy:'delete',consume:'delete',
+  radiance:'convert',dominion:'convert',
+  phase:'move',leap:'move',exchange:'move',control:'move',sidestep:'move',
+  decree:'immortal',blessing:'immortal',
+  freeze:'turn',double:'turn'
+})[kind]||kind
+export const bossFamilyLimit=kind=>bossRepeatLimit(bossFamily(kind))
+const trailing=(items,key,map=x=>x)=>{let n=0;for(let i=items.length-1;i>=0&&map(items[i])===key;i--)n++;return n}
 export function canBossRepeat(s,c,kind){
-  const limit=bossRepeatLimit(kind),m=bossInfo(s,c),shared=s.bossActionStreak
+  if(kind==='legal')return true
+  const m=bossInfo(s,c),shared=s.bossActionStreak,limit=bossRepeatLimit(kind)
   const own=m.last===kind?(m.streak||1):0,global=shared?.kind===kind?(shared.count||1):0
-  return own<limit&&global<limit
+  if(own>=limit||global>=limit)return false
+  const family=bossFamily(kind),fLimit=bossFamilyLimit(kind)
+  const all=s.bossRecentActions||[],mine=m.recent||[]
+  if(trailing(all,family,bossFamily)>=fLimit||trailing(mine,family,bossFamily)>=fLimit)return false
+  // Once-only powers cannot be alternated A/B/A; require two intervening actions by the same boss.
+  if(limit===1&&(mine.slice(-2).includes(kind)||all.slice(-2).includes(kind)))return false
+  // Cap bursts of related powers within the last four actions, even with one unrelated action between them.
+  if(family!=='legal'&&fLimit===3&&(all.slice(-4).filter(k=>bossFamily(k)===family).length>=3||mine.slice(-4).filter(k=>bossFamily(k)===family).length>=3))return false
+  if(fLimit===1&&(all.slice(-2).some(k=>bossFamily(k)===family)||mine.slice(-2).some(k=>bossFamily(k)===family)))return false
+  return true
 }
 export function markBossStreak(s,kind){
   const prev=s.bossActionStreak
+  s.bossRecentActions=[...(s.bossRecentActions||[]),kind].slice(-8)
   s.bossActionStreak=kind==='legal'?null:{kind,count:prev?.kind===kind?(prev.count||1)+1:1}
 }
 export const bossHasRoyal=(s,c)=>Object.values(s.b).some(p=>p.c===c&&isRoyal(p))
@@ -557,7 +579,7 @@ export function bossTrial(s,a,c,id,catalog=originals,history=[]){
   // Before the seventh completed boss action, neither capture of the last royal nor a checking move is allowed.
   if(turns<BOSS_GRACE&&(!bossHasRoyal(n,enemy)||threatenedKings(n,catalog).some(sq=>n.b[sq].c===enemy)))return null
   if(turns<BOSS_GRACE){const ch=orthodox(n,enemy);if(ch?.isCheckmate())return null}
-  bossMeta(n,c,{turns,extra:kind==='double',last:kind,streak:m.last===kind?(m.streak||1)+1:1,used:{...m.used,[kind]:(m.used?.[kind]||0)+1},lock:Math.max(0,m.lock-1)})
+  bossMeta(n,c,{turns,extra:kind==='double',last:kind,streak:m.last===kind?(m.streak||1)+1:1,recent:[...(m.recent||[]),kind].slice(-8),used:{...m.used,[kind]:(m.used?.[kind]||0)+1},lock:Math.max(0,m.lock-1)})
   markBossStreak(n,kind)
   markRealityAction(n,kind)
   n.side=oldSide;n.duelMode=s.duelMode
@@ -571,7 +593,7 @@ export function bossReply(s,c,id,catalog=originals,history=[],suggested=null){
   const initial=scoreBoard(s.b),bias=kind=>1.3/(1+(m.used?.[kind]||0))
   const add=(action,score=0)=>{const kind=bossActionKind(action);if(canBossRepeat(s,c,kind))a.push({action,score:score+bias(kind)+Math.random()*.15})}
   if(suggested)add({from:suggested.from,to:suggested.to,promotion:suggested.promotion,normal:true},4+val(s.b[suggested.to]))
-  if(!canBossRepeat(s,c,'move')||m.lock){for(const action of botCandidates(s,c,catalog))add({...action,normal:true},val(s.b[action.to])*.8+near(action.to)-near(action.from))}
+  {for(const action of botCandidates(s,c,catalog))add({...action,normal:true},val(s.b[action.to])*.8+near(action.to)-near(action.from))}
   for(const [from,p] of own){
     for(const to of squares){if(to===from||s.b[to]?.c===c||isDivine(s.b[to]))continue;const victim=s.b[to],promotion=p.t==='p'&&Number(to.slice(1))===(c==='w'?boardSize(s):1)?'q':undefined
       add({from,to,promotion},val(victim)*.9+near(to)-near(from)+(promotion?6:0))}

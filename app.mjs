@@ -1,7 +1,7 @@
-import { icon, names, abilities, powers, originals, pieceArt, pieceAbilities, movementDescription, passiveAbilities, areaAbilities, escapeHtml as esc } from './ui.mjs?v=boss-8'
+import { icon, names, abilities, powers, originals, pieceArt, pieceAbilities, movementDescription, passiveAbilities, areaAbilities, escapeHtml as esc } from './ui.mjs?v=boss-9'
 import {
   fresh,
-  realityFlipRemaining, markRealityAction, canBossFlip, bossActionKind, bossRepeatLimit, markBossStreak,
+  realityFlipRemaining, markRealityAction, canBossFlip, bossActionKind, bossRepeatLimit, markBossStreak, canBossRepeat, bossFamily,
   isBoss, BOSS_GRACE, bossInfo, bossReply, bossOutcome, bossConsumeFreeze, bossConsumeLock, bossHasRoyal,
   isDivine, isDestroyed, mergePieces, destroySquare, toggleCheckmateImmunity,
   clone,
@@ -19,8 +19,8 @@ import {
   threatenedKings,
   convertPiece,
   boardSize, boardFiles, boardRanks, allSquares, expandBoard, blackHole, xy, legalBotTrial, sandboxNoMove, clonePiece, toggleImmortality, freezeBot, toggleRealityLock, consumeBotFreeze, godTrial, godPower,
-} from './game.mjs?v=boss-8'
-import { stockfishMove, compareMove } from './engine.mjs?v=boss-8'
+} from './game.mjs?v=boss-9'
+import { stockfishMove, compareMove } from './engine.mjs?v=boss-9'
 import { grades, reviewMove, engineGrade } from './review.mjs'
 const $ = (id) => document.getElementById(id),
   modal = $('modal'),
@@ -105,7 +105,7 @@ function renderDuel(){
   $('duel-step').disabled=duelRunning||duelBusy||!!game.result
   $('duel-white').textContent=duelName('w')+' · '+duelProfile('w')[2]
   $('duel-black').textContent=duelName('b')+' · '+duelProfile('b')[2]
-  const streak=game.bossActionStreak,anti=$('duel-repeat-status');if(anti)anti.textContent=streak?'Last action: '+(streak.kind==='move'?'Illegal move':actionNames[streak.kind]||abilities[streak.kind]||streak.kind)+' · '+streak.count+'/'+bossRepeatLimit(streak.kind)+(streak.count>=bossRepeatLimit(streak.kind)?' · choose a different action':''):'Anti-spam: ready'
+  const streak=game.bossActionStreak,anti=$('duel-repeat-status');if(anti){const kinds=(game.bossRecentActions||[]).slice(-4);anti.textContent='Anti-spam v2 · '+(kinds.length?kinds.map(k=>k==='move'?'Illegal move':k==='legal'?'Legal move':actionNames[k]||abilities[k]||k).join(' → '):'Ready')}
   $('duel-count').textContent=(d.plies||0)+' moves'+['w','b'].filter(c=>isBoss(d[c])).map(c=>' · '+colorName(c)+' grace '+Math.min(BOSS_GRACE,bossInfo(game,c).turns)+'/'+BOSS_GRACE).join('')
 }
 function scheduleDuel(){
@@ -129,7 +129,7 @@ async function duelStep(){
     if(isBoss(id)){bossResult=bossReply(game,actor,id,catalog(),undoStack,action);action=bossResult?.action;source=p[0]+(id==='illegal'&&ch?' · Stockfish + illegal search':' · sandbox')}
     else if(!action){action=sandboxReply(sim,[],p[3]==='max'?'master':p[3],p[1]);if(isEngine(id))source+=' · sandbox fallback'}
     if(epoch!==token)return
-    const safe=isBoss(id)?bossResult?.state:action&&legalBotTrial(sim,action,actor,[])
+    const safe=isBoss(id)?(action&&canBossRepeat(game,actor,bossActionKind(action))?bossResult?.state:null):action&&legalBotTrial(sim,action,actor,[])
     if(!safe){
       if(isBoss(id)&&bossInfo(game,actor).turns<BOSS_GRACE){d.turn=other(actor);log('Grace period · no allowed move',source);return}
       game.result=ch?.isCheckmate()?{winner:other(actor),reason:'Checkmate'}:ch?.isStalemate()?{winner:null,reason:'Stalemate'}:sandboxNoMove(sim,[],actor)||{winner:null,reason:'No legal move'}
@@ -138,7 +138,7 @@ async function duelStep(){
     undoStack.push(before);if(undoStack.length>60)undoStack.shift();redoStack=[]
     const next=isBoss(id)&&action.power==='double'?actor:other(actor)
     Object.assign(game,{b:safe.b,rights:safe.rights,ep:safe.ep,last:safe.last,size:safe.size,destroyed:safe.destroyed,bossState:safe.bossState})
-    if(isBoss(id))game.bossActionStreak=safe.bossActionStreak;else markBossStreak(game,'legal')
+    if(isBoss(id)){game.bossActionStreak=safe.bossActionStreak;game.bossRecentActions=safe.bossRecentActions}else markBossStreak(game,'legal')
     markRealityAction(game,action.power||'move')
     if(!isBoss(id))bossConsumeLock(game,actor)
     d.turn=next;d.plies=(d.plies||0)+1
@@ -153,12 +153,12 @@ async function duelStep(){
 function duelDialog(){
   pauseDuel();renderStatus()
   const old=game.duel
-  dialog('Bot vs Bot','<p class="dialog-copy">Choose either bot for either color. Ordinary bots use normal moves. OWNER and Illegal Stockfish can use every sandbox power and cannot finish a game before their seventh move. Same ability: once consecutively; illegal moves, delete and spawn: up to three. Pause to edit the board with sandbox tools.</p><label class="form-field">White bot<select id="duel-w">'+selectOptions(duelOptions(),old?.w||'fish')+'</select></label><label class="form-field">Black bot<select id="duel-b">'+selectOptions(duelOptions(),old?.b||'fishmax')+'</select></label><label class="form-field">Move delay<select id="duel-delay">'+selectOptions([['150','Fast'],['500','Normal'],['1200','Slow'],['2500','Very slow']],String(old?.delay||500))+'</select></label><label class="check-row"><input id="duel-current" type="checkbox" '+(old?'checked':'')+'> Use current board (keep custom pieces)</label><label class="form-field">Side to move on current board<select id="duel-turn">'+selectOptions([['w','White'],['b','Black']],old?.turn||'w')+'</select></label><p class="dialog-note">Ratings are illustrative difficulty labels, not measured Elo. Stockfish variants use the bundled engine on compatible boards; other profiles use the sandbox engine.</p><div class="dialog-actions"><button class="secondary" id="duel-cancel">Cancel</button><button class="primary" id="duel-start">Start match</button></div>','duel')
+  dialog('Bot vs Bot','<p class="dialog-copy">Choose either bot for either color. Ordinary bots use normal moves. OWNER and Illegal Stockfish can use every sandbox power and cannot finish a game before their seventh move. Anti-spam v2: special powers require two intervening actions before reuse; illegal moves, delete and spawn have a shared burst limit of three, including related powers. Pause to edit the board with sandbox tools.</p><label class="form-field">White bot<select id="duel-w">'+selectOptions(duelOptions(),old?.w||'fish')+'</select></label><label class="form-field">Black bot<select id="duel-b">'+selectOptions(duelOptions(),old?.b||'fishmax')+'</select></label><label class="form-field">Move delay<select id="duel-delay">'+selectOptions([['150','Fast'],['500','Normal'],['1200','Slow'],['2500','Very slow']],String(old?.delay||500))+'</select></label><label class="check-row"><input id="duel-current" type="checkbox" '+(old?'checked':'')+'> Use current board (keep custom pieces)</label><label class="form-field">Side to move on current board<select id="duel-turn">'+selectOptions([['w','White'],['b','Black']],old?.turn||'w')+'</select></label><p class="dialog-note">Ratings are illustrative difficulty labels, not measured Elo. Stockfish variants use the bundled engine on compatible boards; other profiles use the sandbox engine.</p><div class="dialog-actions"><button class="secondary" id="duel-cancel">Cancel</button><button class="primary" id="duel-start">Start match</button></div>','duel')
   $('duel-cancel').onclick=()=>modal.close()
   $('duel-start').onclick=()=>{
     const keep=$('duel-current').checked,w=$('duel-w').value,b=$('duel-b').value,delay=Number($('duel-delay').value),turn=keep?$('duel-turn').value:'w'
     checkpoint();if(!keep)game=fresh()
-    game.result=null;game.pending=false;game.doubleTurn=0;game.frozenTurns=0;game.checkmateImmunity=false;game.bossState={};game.bossActionStreak=null;game.realityFlipUntil=0;game.realityFlipNeedsAction=false
+    game.result=null;game.pending=false;game.doubleTurn=0;game.frozenTurns=0;game.checkmateImmunity=false;game.bossState={};game.bossActionStreak=null;game.bossRecentActions=[];game.realityFlipUntil=0;game.realityFlipNeedsAction=false
     game.duel={w,b,delay,turn,plies:0,half:0,positions:[duelKey(game,turn)]};game.view='w';game.side='w';spawnColor='w';mode='move';resetSelection();modal.close();duelRunning=true;save();render();scheduleDuel()
   }
 }
@@ -899,7 +899,7 @@ async function bossTurn(token){
   const before=clone(game)
   const chosen=bossReply(game,actor,id,catalog(),undoStack,suggestion)
   if(epoch!==token)return
-  if(!chosen){game.pending=false;notice='Boss has no available action';save();render();return}
+  if(!chosen||!canBossRepeat(game,actor,bossActionKind(chosen.action))){game.pending=false;notice='Boss has no available action';save();render();return}
   const action=chosen.action
   Object.assign(game,chosen.state)
   markRealityAction(game,action.power||'move')
