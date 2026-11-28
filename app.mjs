@@ -21,7 +21,7 @@ import {
   convertPiece,
   boardSize, boardFiles, boardRanks, allSquares, expandBoard, blackHole, xy, legalBotTrial, sandboxNoMove, clonePiece, toggleImmortality, freezeBot, toggleRealityLock, consumeBotFreeze, godTrial, godPower,
 } from './game.mjs?v=tracker-16'
-import { stockfishMove, compareMove, brilliantHunterMove } from './engine.mjs?v=review-20'
+import { stockfishMove, compareMove, brilliantHunterMove, preanalyzePosition, analysisStats, getCachedComparison } from './engine.mjs?v=parallel-21'
 import { grades, reviewAction, engineGrade, displayGrade, latestBoardGrade, gradeSquares, trackerSummary, nextTrackerReview, classifyAction, lockBadge, badgeEffect, badgePulseKey, waitingForRating, finishRating } from './review.mjs?v=review-20'
 const $ = (id) => document.getElementById(id),
   modal = $('modal'),
@@ -241,6 +241,15 @@ function log(text, by = 'You') {
 // Migrate retained moves before an asynchronous review can update their visible rating.
 for(const state of [game,...undoStack,...redoStack])for(const entry of state.logs||[])lockBadge(entry)
 let activeReview = null
+function warmReview(){
+  if(game.result){preanalyzePosition(null,0);return}
+  if(activeReview||waitingForRating(game.logs.at(-1)))return
+  const actor=game.duel?game.duel.turn:game.pending?other(game.side):game.side
+  const ch=orthodox(game,actor)
+  if(!ch){preanalyzePosition(null,0);return}
+  const moves=ch.moves({verbose:true}),chosen=mode==='move'&&game.b[selected]?.c===actor?moves.filter(m=>m.from===selected).map(m=>m.from+m.to+(m.promotion||'')):[]
+  preanalyzePosition(ch.fen(),moves.length,chosen)
+}
 async function reviewQueue() {
   if (activeReview) return
   const next = nextTrackerReview(game.logs)
@@ -270,6 +279,7 @@ async function reviewQueue() {
   } finally {
     activeReview = null
     if (game.logs.some((item) => item.search)) queueMicrotask(reviewQueue)
+    else warmReview()
   }
 }
 
@@ -285,8 +295,9 @@ function annotateAction(entry,before,action,actor,assessment=reviewAction(before
   const sq=action.to||action.from||null
   if(action.hunterGrade?.key==='brilliant'&&assessment.search&&assessment.legality?.kind==='legal')assessment={grade:action.hunterGrade,legality:assessment.legality}
   Object.assign(entry,assessment,{id:crypto.randomUUID(),sq,actor,fx:{from:action.from,to:action.to,power:action.power,capture:!!before.b[action.to],promotion:!!action.promotion}})
+  if(entry.search){const cached=getCachedComparison(entry.search.fen,entry.search.played,entry.search.alternatives);if(cached)finishRating(entry,engineGrade(entry.search,cached))}
   lockBadge(entry)
-  if(assessment.search)reviewQueue()
+  if(entry.search)reviewQueue()
 }
 function markEdit(text,action,before=undoStack.at(-1),actor=game.side){
   const entry=log(text);if(before)annotateAction(entry,before,action,actor,reviewAction(before,game,action,actor,null));return entry
@@ -335,7 +346,7 @@ function gradeGlyph(d){
 }
 function paintReview(){
   const last=[...game.logs].reverse().find(item=>item.grade),summary=trackerSummary(game.logs)
-  const status=$('tracker-status');if(status)status.textContent='Move Tracker · '+summary.tracked+' tracked · '+summary.legal+' legal · '+summary.illegal+' illegal · '+summary.power+' powers · '+summary.pending+' pending'
+  const status=$('tracker-status');if(status)status.textContent='Move Tracker · '+summary.tracked+' tracked · '+summary.legal+' legal · '+summary.illegal+' illegal · '+summary.power+' powers · '+summary.pending+' pending · '+analysisStats().cacheHits+' cached reviews'
   const box=$('move-review')
   box.hidden=!last
   if(last){
@@ -714,6 +725,7 @@ function paintAnnotations() {
   board.insertAdjacentHTML('beforeend','<svg class="annotations" aria-hidden="true" viewBox="0 0 '+boardSize(game)*100+' '+boardSize(game)*100+'"><defs><marker id="arrowhead" markerWidth="4" markerHeight="4" refX="3" refY="2" orient="auto"><path d="M0 0L4 2L0 4Z" fill="#f59e0b"/></marker></defs>'+lines+'</svg>')
 }
 function paintDestinations() {
+  warmReview()
   const targets = new Set(
     selected && ['move','control'].includes(mode) && !game.result ? destinations(game, selected, powerTarget) : [],
   )
@@ -1072,7 +1084,7 @@ function showHelp() {
     ],
     [
       'Move review',
-      'Stockfish compares ordinary moves with its best line. A brilliant move offers material while keeping a strong evaluation. Move Tracker automatically reviews every completed move by either side. Standard moves are rated by Stockfish before any badge appears. The published expected-points loss bands used by Chess.com are applied to an approximate score conversion. Automatic bot play waits for the badge; the rating is locked once displayed. Custom and illegal positions still use bounded tactical estimates because standard Stockfish cannot understand their rules. Dots and capture rings are legal destinations even for custom pieces; off-target moves get illegal variants. Stockfish reviews compatible legal positions, while legal custom moves use ordinary rating colors with a sandbox estimate. Powers retain distinct event marks and a tactical assessment. Sandbox estimates are labeled separately from verified engine grades. Brilliant engine grades require an engine-supported sacrifice. Illegal tactical ratings are sandbox estimates. Special powers have unique event marks for summoning, time, reality, void, fusion, protection and more. A small built-in opening book identifies common known opening moves. Open Move history for both sides’ grades.',
+      'Stockfish compares ordinary moves with its best line. A brilliant move offers material while keeping a strong evaluation. Move Tracker automatically reviews every completed move by either side. Standard moves are rated by Stockfish before any badge appears. A predictor searches up to four leading moves in advance; a selected-piece agent and a parallel played-move agent reuse exact-position results when available. Cached ratings may appear immediately; uncached ratings wait for the engine. The published expected-points loss bands used by Chess.com are applied to an approximate score conversion. Automatic bot play waits for the badge; the rating is locked once displayed. Custom and illegal positions still use bounded tactical estimates because standard Stockfish cannot understand their rules. Dots and capture rings are legal destinations even for custom pieces; off-target moves get illegal variants. Stockfish reviews compatible legal positions, while legal custom moves use ordinary rating colors with a sandbox estimate. Powers retain distinct event marks and a tactical assessment. Sandbox estimates are labeled separately from verified engine grades. Brilliant engine grades require an engine-supported sacrifice. Illegal tactical ratings are sandbox estimates. Special powers have unique event marks for summoning, time, reality, void, fusion, protection and more. A small built-in opening book identifies common known opening moves. Open Move history for both sides’ grades.',
     ],
     [
       'Move anywhere',

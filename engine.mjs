@@ -1,11 +1,11 @@
 import { sacrificeCandidates, chooseHunterMove } from './review.mjs?v=review-20'
 // A worker belongs to one job. Reuse it for both root searches in a move review.
-function engineJob(requests, skill, onComplete) {
+function engineJob(requests, skill, onComplete, multiPV=1) {
   let worker, timer, finish
   const result = new Promise((resolve) => {
     let done = false,
       index = 0,
-      score = null
+      score = null, pvByDepth=new Map()
     const answers = []
     finish = (value) => {
       if (done) return
@@ -15,7 +15,7 @@ function engineJob(requests, skill, onComplete) {
       resolve(value)
     }
     const start = () => {
-      score = null
+      score = null;pvByDepth=new Map()
       worker.postMessage('position fen ' + requests[index].fen)
       worker.postMessage(requests[index].go)
     }
@@ -26,13 +26,21 @@ function engineJob(requests, skill, onComplete) {
         const line = String(data).trim()
         if (line === 'uciok') {
           worker.postMessage('setoption name Skill Level value ' + skill)
+          if(multiPV>1)worker.postMessage('setoption name MultiPV value '+multiPV)
           worker.postMessage('isready')
         } else if (line === 'readyok') start()
         else if (line.startsWith('info ') && !/\b(lowerbound|upperbound)\b/.test(line)) {
           const match = line.match(/\bscore (cp|mate) (-?\d+)\b/)
-          if (match) score = { type: match[1], value: Number(match[2]) }
+          if(match){
+            const parsed={type:match[1],value:Number(match[2])},depth=Number(line.match(/\bdepth (\d+)/)?.[1]||0),pv=Number(line.match(/\bmultipv (\d+)/)?.[1]||1),move=line.match(/\bpv ([a-h][1-8][a-h][1-8][qrbn]?)(?:\s|$)/)?.[1]
+            if(pv===1)score=parsed
+            if(move&&depth){const row=pvByDepth.get(depth)||new Map();row.set(pv,{move,score:parsed});pvByDepth.set(depth,row)}
+          }
         } else if (line.startsWith('bestmove ')) {
-          answers.push({ move: line.split(/\s+/)[1], score })
+          const bestmove=line.split(/\s+/)[1]
+          const depths=[...pvByDepth.keys()].sort((a,b)=>b-a),depth=depths.find(d=>pvByDepth.get(d).size>=multiPV&&pvByDepth.get(d).get(1)?.move===bestmove)||depths.find(d=>pvByDepth.get(d).get(1)?.move===bestmove)||0
+          const lines=depth?[...pvByDepth.get(depth)].sort((a,b)=>a[0]-b[0]).map(([,line])=>line):[]
+          answers.push({move:bestmove,score:lines[0]?.score||score,depth,lines})
           if (++index < requests.length) start()
           else finish(onComplete(answers))
         }
@@ -57,14 +65,86 @@ export function stockfishMove(fen, level, allowed) {
   )
 }
 
-export function compareMove(fen, played, alternatives = []) {
-  const go = 'go depth 16 movetime 1250'
-  const requests = [{fen,go},{fen,go:go+' searchmoves '+played}]
-  const valid = alternatives.filter(m=>/^[a-h][1-8][a-h][1-8][qrbn]?$/.test(m)&&m!==played)
-  if(valid.length) requests.push({fen,go:go+' searchmoves '+valid.join(' ')})
-  return engineJob(requests,20,([best,actual,alternative]) =>
-    best.score && actual.score && actual.move===played ? {best,actual,alternative:alternative?.score?alternative:null}:null
-  )
+// Bounded parallel agents; exact-position caches never contain guessed grades.
+const ROOT_GO='go depth 16 movetime 1250',MIN_DEPTH=9,MAX_CACHE=48
+const roots=new Map(),focused=new Map()
+let prediction=null,focusPrediction=null
+const diagnostics={cacheHits:0,parallelChecks:0,predictions:0}
+const uciValid=m=>/^[a-h][1-8][a-h][1-8][qrbn]?$/.test(m)
+function trimCache(cache){
+  for(const [key,item] of cache){if(cache.size<=MAX_CACHE)break;if(item.done)cache.delete(key)}
+}
+function searchCached(cache,key,fen,moves,multi){
+  if(cache.has(key))return cache.get(key)
+  const job=engineJob([{fen,go:ROOT_GO+(moves.length?' searchmoves '+moves.join(' '):'')}],20,([answer])=>answer,multi)
+  const item={key,fen,moves,job,done:false,value:null,users:0}
+  cache.set(key,item)
+  item.result=job.result.then(answer=>{item.done=true;item.value=answer;if(!answer?.score||answer.depth<MIN_DEPTH){if(cache.get(key)===item)cache.delete(key)}trimCache(cache);return answer})
+  return item
+}
+const rootSearch=(fen,count)=>searchCached(roots,fen,fen,[],Math.max(1,Math.min(4,count)))
+const focusedSearch=(fen,moves)=>searchCached(focused,fen+'|'+moves.slice().sort().join(' '),fen,moves,Math.max(1,Math.min(4,moves.length)))
+function cancelIdle(item){if(item&&!item.done&&!item.users)item.job.cancel()}
+export function preanalyzePosition(fen,legalCount,selectedMoves=[]){
+  if(!fen||!legalCount){cancelIdle(prediction);cancelIdle(focusPrediction);prediction=null;focusPrediction=null;return}
+  if(prediction?.fen!==fen){cancelIdle(prediction);prediction=rootSearch(fen,legalCount);diagnostics.predictions++}
+  const moves=[...new Set(selectedMoves.filter(uciValid))]
+  if(!moves.length||moves.length>4){cancelIdle(focusPrediction);focusPrediction=null;return}
+  const key=fen+'|'+moves.slice().sort().join(' ')
+  if(focusPrediction?.key===key)return
+  cancelIdle(focusPrediction);focusPrediction=focusedSearch(fen,moves)
+}
+export function analysisStats(){return {...diagnostics,rootCached:[...roots.values()].filter(x=>x.done&&x.value?.depth>=MIN_DEPTH).length}}
+const lineFor=(answer,move)=>answer?.lines?.find(x=>x.move===move)||(answer?.move===move&&answer.score?{move,score:answer.score}:null)
+export function cachedComparison(root,played,actual=null){
+  if(!root?.score||root.depth<MIN_DEPTH)return null
+  const best={move:root.move,score:root.score},chosen=lineFor(root,played)||actual
+  if(!chosen?.score||chosen.move!==played)return null
+  return {best,actual:chosen,alternative:root.move!==played?best:root.lines?.find(x=>x.move!==played)||null}
+}
+export function getCachedComparison(fen,played,alternatives=[]){
+  let actual=null
+  for(const item of focused.values())if(item.fen===fen&&item.done&&item.value?.depth>=MIN_DEPTH){actual=lineFor(item.value,played);if(actual)break}
+  const result=cachedComparison(roots.get(fen)?.value,played,actual)
+  if(!result||(!result.alternative&&alternatives.length))return null
+  diagnostics.cacheHits++;return result
+}
+export function compareMove(fen,played,alternatives=[]){
+  const valid=[...new Set(alternatives.filter(m=>uciValid(m)&&m!==played))]
+  if(!uciValid(played))return {result:Promise.resolve(null),cancel:()=>{}}
+  const cached=getCachedComparison(fen,played,valid)
+  if(cached)return {result:Promise.resolve(cached),cancel:()=>{}}
+  let cancelled=false,extra=null
+  const root=rootSearch(fen,valid.length+1);root.users++
+  if(prediction!==root)cancelIdle(prediction)
+  const focus=focusPrediction?.fen===fen&&focusPrediction.moves.includes(played)?focusPrediction:null
+  if(!focus)cancelIdle(focusPrediction)
+  const playedJob=focus||focusedSearch(fen,[played]);playedJob.users++;diagnostics.parallelChecks++
+  const result=(async()=>{
+    const best=await root.result
+    if(cancelled||!best?.score)return null
+    let comparison=cachedComparison(best,played)
+    if(!comparison){
+      const answer=await playedJob.result
+      if(cancelled)return null
+      let chosen=lineFor(answer,played)
+      if(!chosen?.score){
+        extra=engineJob([{fen,go:ROOT_GO+' searchmoves '+played}],20,([x])=>x)
+        const x=await extra.result
+        if(cancelled||x?.move!==played||!x.score)return null
+        chosen={move:played,score:x.score}
+      }
+      comparison={best:{move:best.move,score:best.score},actual:chosen,alternative:best.move!==played?{move:best.move,score:best.score}:best.lines?.find(x=>x.move!==played)||null}
+    }
+    if(comparison.best.move===played&&!comparison.alternative&&valid.length){
+      extra=engineJob([{fen,go:ROOT_GO+' searchmoves '+valid.join(' ')}],20,([x])=>x)
+      const alt=await extra.result
+      if(cancelled)return null
+      if(alt?.score)comparison.alternative={move:alt.move,score:alt.score}
+    }
+    return cancelled?null:comparison
+  })().catch(()=>null).finally(()=>{root.users--;playedJob.users--;cancelIdle(playedJob)})
+  return {result,cancel:()=>{cancelled=true;extra?.cancel();if(root.users===1&&!root.done)root.job.cancel();if(playedJob.users===1&&!playedJob.done)playedJob.job.cancel()}}
 }
 
 export function brilliantHunterMove(fen,allowed){
