@@ -1617,3 +1617,26 @@ input[type='checkbox'] {
 @keyframes arena-time{0%{opacity:0;transform:translateY(-8%)}20%{opacity:.8}100%{opacity:0;transform:translateY(8%)}}
 @keyframes arena-reality{0%{opacity:0;transform:translateX(-15%)}30%{opacity:.8}100%{opacity:0;transform:translateX(15%)}}
 @media(prefers-reduced-motion:reduce){.arena-fx-layer{display:none!important}.square.piece-arrival .piece{animation:none!important}}
+
+/* Chess edit glow mode — high-contrast optional board, color-coded lighting and soft particle bursts. */
+.board[data-theme="editcinema"]{--light:#dddfe3;--dark:#303238}
+.board[data-theme="editcinema"] .coord{color:#777}
+.board[data-theme="editcinema"] .dark .coord{color:#c3c5ca}
+.board[data-edit-glow="true"] .square.edit-trail:not(.king-check):not(.destroyed-square){background-image:linear-gradient(color-mix(in srgb,var(--edit-accent) 48%,transparent),color-mix(in srgb,var(--edit-accent) 48%,transparent));box-shadow:inset 0 0 12px color-mix(in srgb,var(--edit-accent) 45%,transparent)}
+.board[data-edit-glow="true"] .square.edit-threat:not(.destroyed-square){background-image:linear-gradient(#ff53687d,#ff53687d);box-shadow:inset 0 0 15px #ff5368b0}
+.board[data-edit-glow="true"] .square.edit-focus:not(.king-check):not(.destroyed-square){background-image:linear-gradient(color-mix(in srgb,var(--edit-accent) 62%,transparent),color-mix(in srgb,var(--edit-accent) 62%,transparent));box-shadow:inset 0 0 18px var(--edit-accent)}
+.board[data-edit-glow="true"] .square.rated-square.edit-focus:not(.king-check) .piece{filter:drop-shadow(0 0 5px var(--edit-accent)) drop-shadow(0 0 2px #fff8)}
+.board[data-edit-glow="true"] .square.rated-square .grade-pin{background:var(--edit-accent,var(--grade-bg));color:white;box-shadow:0 0 8px var(--edit-accent,var(--grade-bg)),0 0 20px color-mix(in srgb,var(--edit-accent,var(--grade-bg)) 75%,transparent);text-shadow:0 1px 3px #0007}
+.board[data-edit-glow="true"] .square.rated-square .grade-pin.grade-pulse::after{border-color:var(--edit-accent,var(--grade-bg));box-shadow:0 0 8px var(--edit-accent,var(--grade-bg))}
+.edit-burst{position:absolute;inset:0;pointer-events:none;z-index:7;overflow:hidden}
+.edit-energy-ring{position:absolute;left:var(--edit-x);top:var(--edit-y);width:8%;aspect-ratio:1;border:2px solid color-mix(in srgb,var(--edit-accent) 65%,white);border-radius:50%;box-shadow:0 0 14px var(--edit-accent),inset 0 0 9px var(--edit-accent);animation:edit-energy-wave .72s cubic-bezier(.08,.55,.3,1) var(--ring-delay) both}
+.edit-stardust{position:absolute;left:var(--edit-x);top:var(--edit-y);width:var(--dust-size);height:var(--dust-size);border-radius:50%;background:#fff;box-shadow:0 0 5px var(--edit-accent),0 0 9px var(--edit-accent);animation:edit-dust .78s ease-out var(--dust-delay) both}
+.edit-screen-wave{position:absolute;inset:0;background:radial-gradient(circle at var(--edit-x) var(--edit-y),transparent 5%,color-mix(in srgb,var(--edit-accent) 20%,transparent) 25%,transparent 66%);box-shadow:inset 0 0 20px color-mix(in srgb,var(--edit-accent) 35%,transparent);animation:edit-screen-pulse .8s ease-out both}
+.edit-burst-spectacular .edit-energy-ring{width:12%;border-width:3px}
+.edit-burst-impact .edit-screen-wave{background:radial-gradient(circle at var(--edit-x) var(--edit-y),#ff54641c,transparent 58%)}
+.arena-fallen{position:absolute;inset:0;display:grid;place-items:center;opacity:0;animation:edit-fall .29s ease-out var(--impact-delay,0ms) both}
+@keyframes edit-energy-wave{0%{opacity:0;transform:translate(-50%,-50%) scale(.5)}18%{opacity:.9}100%{opacity:0;transform:translate(-50%,-50%) scale(3.1)}}
+@keyframes edit-dust{0%{opacity:0;transform:translate(-50%,-50%) scale(.5)}18%{opacity:.9}100%{opacity:0;transform:translate(calc(-50% + var(--dust-x)),calc(-50% + var(--dust-y))) scale(.45)}}
+@keyframes edit-screen-pulse{0%{opacity:0;transform:scale(.97)}20%{opacity:.8}100%{opacity:0;transform:scale(1.05)}}
+@keyframes edit-fall{0%{opacity:1;transform:rotate(0) scale(1)}100%{opacity:0;transform:translate(24%,12%) rotate(82deg) scale(.8)}}
+@media(prefers-reduced-motion:reduce){.edit-burst,.arena-fallen{display:none!important}}

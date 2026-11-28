@@ -112,6 +112,7 @@ export function renderEffects(board,fx,{size,view,art,delay=500}){
   for(const victim of fx.victims||[]){
     const node=place(victim.sq,'arena-shatter');if(!node)continue
     const markup=art(victim.t,victim.c)
+    if(board.dataset.editGlow==='true'){const fallen=document.createElement('span');fallen.className='arena-fallen';fallen.innerHTML=markup;node.append(fallen)}
     for(let i=0;i<polygons.length;i++){
       const fragment=document.createElement('span'),angle=(i*2*Math.PI/polygons.length)+.2
       fragment.className='arena-shard';fragment.style.clipPath='polygon('+polygons[i]+')'
