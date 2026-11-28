@@ -1,6 +1,7 @@
-import { icon, names, abilities, powers, originals, pieceArt, pieceAbilities, movementDescription, passiveAbilities, areaAbilities, escapeHtml as esc } from './ui.mjs?v=boss-6'
+import { icon, names, abilities, powers, originals, pieceArt, pieceAbilities, movementDescription, passiveAbilities, areaAbilities, escapeHtml as esc } from './ui.mjs?v=boss-7'
 import {
   fresh,
+  realityFlipRemaining, markRealityAction, canBossFlip,
   isBoss, BOSS_GRACE, bossInfo, bossReply, bossOutcome, bossConsumeFreeze, bossConsumeLock, bossHasRoyal,
   isDivine, isDestroyed, mergePieces, destroySquare, toggleCheckmateImmunity,
   clone,
@@ -18,8 +19,8 @@ import {
   threatenedKings,
   convertPiece,
   boardSize, boardFiles, boardRanks, allSquares, expandBoard, blackHole, xy, legalBotTrial, sandboxNoMove, clonePiece, toggleImmortality, freezeBot, toggleRealityLock, consumeBotFreeze, godTrial, godPower,
-} from './game.mjs?v=boss-6'
-import { stockfishMove, compareMove } from './engine.mjs?v=boss-6'
+} from './game.mjs?v=boss-7'
+import { stockfishMove, compareMove } from './engine.mjs?v=boss-7'
 import { grades, reviewMove, engineGrade } from './review.mjs'
 const $ = (id) => document.getElementById(id),
   modal = $('modal'),
@@ -87,9 +88,16 @@ function pauseDuel(){
   if(!game.duel)return
   duelRunning=false;duelBusy=false;cancelBot();game.pending=false
 }
+function updateFlipCooldown(){
+  const ms=realityFlipRemaining(game),secs=Math.ceil(ms/1000),tool=document.querySelector('[data-tool="flip"] small'),status=$('duel-flip-cooldown')
+  const detail=secs?'Reality switch cooldown · '+secs+'s':game.realityFlipNeedsAction?'Reality switch · another action required':'Reality switch ready'
+  if(tool)tool.textContent=secs?'Cooldown · '+secs+'s':'Shared 10s cooldown'
+  if(status&&status.textContent!==detail)status.textContent=detail
+}
 function renderDuel(){
   const d=game.duel,panel=$('duel-panel')
   panel.hidden=!d
+  updateFlipCooldown()
   if(!d)return
   $('duel-state').textContent=game.result?resultTitle():duelBusy?'Thinking · '+duelName(d.turn):duelRunning?'Playing · '+colorName(d.turn):'Paused · '+colorName(d.turn)+' to move'
   $('duel-toggle').textContent=duelRunning?'Pause':'Resume'
@@ -129,6 +137,7 @@ async function duelStep(){
     undoStack.push(before);if(undoStack.length>60)undoStack.shift();redoStack=[]
     const next=isBoss(id)&&action.power==='double'?actor:other(actor)
     Object.assign(game,{b:safe.b,rights:safe.rights,ep:safe.ep,last:safe.last,size:safe.size,destroyed:safe.destroyed,bossState:safe.bossState})
+    markRealityAction(game,action.power||'move')
     if(!isBoss(id))bossConsumeLock(game,actor)
     d.turn=next;d.plies=(d.plies||0)+1
     game.result=duelAfter(game,next,actor,action,before)
@@ -147,7 +156,7 @@ function duelDialog(){
   $('duel-start').onclick=()=>{
     const keep=$('duel-current').checked,w=$('duel-w').value,b=$('duel-b').value,delay=Number($('duel-delay').value),turn=keep?$('duel-turn').value:'w'
     checkpoint();if(!keep)game=fresh()
-    game.result=null;game.pending=false;game.doubleTurn=0;game.frozenTurns=0;game.checkmateImmunity=false;game.bossState={}
+    game.result=null;game.pending=false;game.doubleTurn=0;game.frozenTurns=0;game.checkmateImmunity=false;game.bossState={};game.realityFlipUntil=0;game.realityFlipNeedsAction=false
     game.duel={w,b,delay,turn,plies:0,half:0,positions:[duelKey(game,turn)]};game.view='w';game.side='w';spawnColor='w';mode='move';resetSelection();modal.close();duelRunning=true;save();render();scheduleDuel()
   }
 }
@@ -163,7 +172,7 @@ const toolInfo = [
   ['move', 'Move', 'Any square'],
   ['spawn', 'Spawn', 'Add a piece'],
   ['delete', 'Delete', 'Remove piece'],
-  ['flip', 'Reality flip', 'Swap sides'],
+  ['flip', 'Reality flip', 'Shared 10s cooldown'],
   ['control', 'Control', 'Command enemy pieces'],
   ['convert', 'Conversion', 'Turn enemies into allies'],
   ['double', 'Double turn', 'Two moves before bot'],
@@ -392,6 +401,7 @@ function chime(bot = false) {
   } catch {}
 }
 function endAction(reply = false) {
+  if(reply)markRealityAction(game,'move')
   if(game.duel){pauseDuel();game.duel.positions=[duelKey(game,game.duel.turn)];game.duel.half=0;resetSelection();save();render();return}
   resetSelection()
   const extra = Boolean(reply && game.doubleTurn && !game.result)
@@ -476,7 +486,8 @@ function selectMode(value) {
   }
   if (value === 'expand') return expandDialog()
   if (value === 'flip') {
-    checkpoint()
+    const remaining=realityFlipRemaining(game);if(remaining){notice='Reality switch cooldown · '+Math.ceil(remaining/1000)+'s';renderStatus();return}
+    checkpoint();markRealityAction(game,'flip')
     game.side = other(game.side)
     game.view = game.side
     spawnColor = game.side
@@ -786,6 +797,7 @@ function render() {
         '</small></span></button>',
     )
     .join('')
+  updateFlipCooldown()
   $('tray').innerHTML = [...classicOrder, ...catalog().filter(item=>item.id!=='fusion').map(item=>item.id)]
     .map(
       (t) =>
@@ -849,6 +861,7 @@ async function botMove(token) {
     const safe=prefs.bot==='gpt'?godTrial(game,action,c,catalog()):legalBotTrial(game,action,c,catalog())
     if(safe){
       Object.assign(game,safe)
+      markRealityAction(game,power||'move')
       extra=false
       if(prefs.bot==='gpt'&&!power&&game.godCooldown>0)game.godCooldown--
       if(globalPowers.has(power)||extra)game.botCooldown=3
@@ -887,6 +900,7 @@ async function bossTurn(token){
   if(!chosen){game.pending=false;notice='Boss has no available action';save();render();return}
   const action=chosen.action
   Object.assign(game,chosen.state)
+  markRealityAction(game,action.power||'move')
   const count=bossInfo(game,actor).turns
   game.result=count>=BOSS_GRACE?bossOutcome(game,actor,catalog()):null
   const entry=log(bossDescription(action),botTitle()+(id==='illegal'&&suggestion?' · Stockfish-assisted':''))
@@ -1428,5 +1442,6 @@ document.onkeydown = (e) => {
 }
 decorate()
 render()
+setInterval(updateFlipCooldown,250)
 reviewQueue()
 if (game.pending && !game.result) scheduleBot()

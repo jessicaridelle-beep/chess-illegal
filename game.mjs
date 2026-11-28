@@ -1,5 +1,5 @@
 import { Chess, validateFen } from './vendor/chess.mjs'
-import { names, pieceAbilities, originals } from './ui.mjs?v=boss-6'
+import { names, pieceAbilities, originals } from './ui.mjs?v=boss-7'
 export const files = 'abcdefgh'
 export const ranks = [8, 7, 6, 5, 4, 3, 2, 1]
 export const other = (c) => (c === 'w' ? 'b' : 'w')
@@ -8,6 +8,14 @@ const alphabet = 'abcdefghijklmnop'
 export const boardSize = s => [8,12,16].includes(s?.size) ? s.size : 8
 export const boardFiles = s => alphabet.slice(0,boardSize(s))
 export const boardRanks = s => Array.from({length:boardSize(s)},(_,i)=>boardSize(s)-i)
+export const REALITY_FLIP_COOLDOWN=10000
+export const realityFlipRemaining=(s,now=Date.now())=>Math.max(0,(s.realityFlipUntil||0)-now)
+export const canBossFlip=(s,now=Date.now())=>!realityFlipRemaining(s,now)&&!s.realityFlipNeedsAction
+export function markRealityAction(s,kind,now=Date.now()){
+  if(kind==='flip'){s.realityFlipUntil=now+REALITY_FLIP_COOLDOWN;s.realityFlipNeedsAction=true}
+  else s.realityFlipNeedsAction=false
+  return s
+}
 export const isDestroyed = (s,sq) => (s.destroyed||[]).includes(sq)
 export const allSquares = s => [...boardFiles(s)].flatMap(f=>boardRanks(s).map(r=>f+r)).filter(sq=>!isDestroyed(s,sq))
 export const isDivine = p => !!p && (p.t==='godking'||p.divine===true)
@@ -433,14 +441,14 @@ export function godTrial(s,a,c=other(s.side),catalog=[]){
     if(p.t==='p'&&[1,size].includes(Number(a.to.slice(1))))return null
     move(t,a.from,a.to)
   }else if(a.power==='flip'){
-    if(s.godFlipped||threatenedKings(s,catalog).length)return null
+    if(s.godFlipped||!canBossFlip(s)||threatenedKings(s,catalog).length)return null
     const kings=['w','b'].every(k=>Object.values(s.b).some(p=>p.c===k&&p.t==='k'))
     if(!kings)return null
     const diff=Object.values(s.b).reduce((n,p)=>n+(p.c===c?1:-1)*(p.t==='k'?0:strategicValue(p,catalog)),0)
     if(diff> -4)return null
     t.side=c;t.view=c;t.ep='-';t.godFlipped=true;t.last=Object.keys(t.b)
     if(threatenedKings(t,catalog).length)return null
-    t.godCooldown=4;return t
+    t.godCooldown=4;markRealityAction(t,'flip');return t
   }else return null
   if(!botKingSafe(s,t,c,catalog))return null
   // No power can directly check the opponent or remove any piece.
@@ -521,7 +529,7 @@ export function bossTrial(s,a,c,id,catalog=originals,history=[]){
   else if(kind==='destroy'){if(!destroySquare(n,a.to))return null}
   else if(kind==='hole'){if(!blackHole(n,a.to))return null}
   else if(kind==='expand'){if(!expandBoard(n,a.size))return null}
-  else if(kind==='flip'){for(const sq of Object.keys(n.b))n.b[sq]={...n.b[sq],c:other(n.b[sq].c)};n.rights='';n.ep='-';n.last=Object.keys(n.b)}
+  else if(kind==='flip'){if(!canBossFlip(s))return null;for(const sq of Object.keys(n.b))n.b[sq]={...n.b[sq],c:other(n.b[sq].c)};n.rights='';n.ep='-';n.last=Object.keys(n.b)}
   else if(kind==='rewind'){const prev=history.at(-a.steps);if(!prev?.b)return null;for(const k of ['b','size','rights','ep','destroyed'])n[k]=copy(prev[k]??(k==='destroyed'?[]:k==='size'?8:k==='ep'?'-':k==='rights'?'':{}));n.last=Object.keys(n.b)}
   else if(kind==='double'){if(m.extra||m.last==='double'||m.last==='freeze')return null;bossMeta(n,c,{extra:true});n.last=[]}
   else if(kind==='freeze'){if(m.extra||m.last==='double'||m.last==='freeze'||bossInfo(n,enemy).freeze)return null;bossMeta(n,enemy,{freeze:1});n.last=[]}
@@ -535,6 +543,7 @@ export function bossTrial(s,a,c,id,catalog=originals,history=[]){
   if(turns<BOSS_GRACE&&(!bossHasRoyal(n,enemy)||threatenedKings(n,catalog).some(sq=>n.b[sq].c===enemy)))return null
   if(turns<BOSS_GRACE){const ch=orthodox(n,enemy);if(ch?.isCheckmate())return null}
   bossMeta(n,c,{turns,extra:kind==='double',last:kind,used:{...m.used,[kind]:(m.used?.[kind]||0)+1},lock:Math.max(0,m.lock-1)})
+  markRealityAction(n,kind)
   n.side=oldSide;n.duelMode=s.duelMode
   return n
 }
@@ -574,7 +583,7 @@ export function bossReply(s,c,id,catalog=originals,history=[],suggested=null){
       if(!isRoyal(p))for(const type of ['overlord','devourer','nova','illuminator'])add({power:'transform',to:from,type},4)
     }
     if(boardSize(s)<16)add({power:'expand',size:boardSize(s)===8?12:16},2)
-    add({power:'flip'},Math.max(0,-initial)*1.2)
+    if(canBossFlip(s))add({power:'flip'},Math.max(0,-initial)*1.2)
     for(let steps=1;steps<=Math.min(5,history.length);steps++)add({power:'rewind',steps},Math.max(0,scoreBoard(history.at(-steps).b)-initial))
     for(const kind of ['double','freeze','lock','immunity'])add({power:kind},kind==='immunity'?4:kind==='lock'?2:3)
   }

@@ -10,7 +10,7 @@
       content="An unrestricted chess playground against bots. Move, spawn, delete, and forge your own pieces."
     />
     <link rel="icon" href="art/brand.svg" />
-    <link rel="stylesheet" href="style.css?v=boss-6" />
+    <link rel="stylesheet" href="style.css?v=boss-7" />
   </head>
   <body>
     <header class="top">
@@ -100,7 +100,7 @@
               </button>
             </div>
           </div>
-          <section id="duel-panel" class="duel-panel" hidden><div class="duel-head"><strong>BOT VS BOT</strong><small id="duel-count"></small></div><div class="duel-match"><span>White<br><b id="duel-white"></b></span><strong>VS</strong><span>Black<br><b id="duel-black"></b></span></div><p id="duel-state" role="status"></p><div class="duel-actions"><button id="duel-toggle" class="primary">Resume</button><button id="duel-step" class="secondary">Next move</button><button id="duel-config" class="secondary">Configure</button><button id="duel-exit" class="secondary">Exit</button></div></section>
+          <section id="duel-panel" class="duel-panel" hidden><div class="duel-head"><strong>BOT VS BOT</strong><small id="duel-count"></small></div><div class="duel-match"><span>White<br><b id="duel-white"></b></span><strong>VS</strong><span>Black<br><b id="duel-black"></b></span></div><p id="duel-state" role="status"></p><p id="duel-flip-cooldown"></p><div class="duel-actions"><button id="duel-toggle" class="primary">Resume</button><button id="duel-step" class="secondary">Next move</button><button id="duel-config" class="secondary">Configure</button><button id="duel-exit" class="secondary">Exit</button></div></section>
           <div id="power-area"></div>
           <div id="move-review" class="move-review" aria-live="polite" hidden></div>
         </section>
@@ -155,6 +155,6 @@
       </div>
       <div id="dialog-content"></div>
     </dialog>
-    <script type="module" src="app.mjs?v=boss-6"></script>
+    <script type="module" src="app.mjs?v=boss-7"></script>
   </body>
 </html>
