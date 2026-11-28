@@ -1728,3 +1728,47 @@ input[type='checkbox'] {
 @keyframes finale-aura-enter{0%,20%{opacity:0}30%,85%{opacity:1}100%{opacity:0}}
 @keyframes finale-edit-ring{0%{opacity:0;transform:scale(.3)}15%{opacity:.85}75%{opacity:.4}100%{opacity:0;transform:scale(2.4)}}
 @keyframes finale-edit-badge{0%,20%{opacity:0;scale:.4}30%{opacity:1;scale:1.2}40%,90%{opacity:1;scale:1}100%{opacity:0;scale:.8}}
+
+/* Sky flight: charge, aerial rotation, landing, then (only on checkmate) fracture. */
+.finale-layer{animation:finale-edit-envelope var(--finale-ms) ease both}
+.finale-stage{animation:finale-sky-camera var(--finale-ms) ease-in-out both;transform-origin:50% 50%}
+.finale-flyer{position:absolute;left:var(--landing-x);top:var(--landing-y);width:calc(100% / var(--finale-size));aspect-ratio:1;z-index:8;display:grid;place-items:center;filter:drop-shadow(0 0 7px #c9ffff) drop-shadow(0 0 18px #42e7ff);animation:finale-sky-flight var(--land-ms) linear both}
+.finale-flyer .piece{width:85%;height:85%}
+.finale-flight-trail{position:absolute;inset:0;width:100%;height:100%;z-index:6;overflow:visible;pointer-events:none}
+.finale-flight-trail path{fill:none;stroke-linecap:round;stroke-dasharray:1;stroke-dashoffset:1;animation:finale-trail var(--land-ms) linear both,finale-trail-fade .6s ease var(--land-ms) forwards}
+.flight-halo{stroke:#3ce9ff;stroke-width:2.2;filter:blur(1px)}
+.flight-core{stroke:#e5ffff;stroke-width:.35}
+.finale-launch{position:absolute;left:var(--launch-x);top:var(--launch-y);width:calc(100% / var(--finale-size));aspect-ratio:1;transform:translate(-50%,-50%);z-index:5}
+.finale-launch-ring{position:absolute;inset:0;border:2px solid #b9ffff;border-radius:50%;box-shadow:0 0 12px #37e8ff;animation:finale-launch-ring .8s ease-out var(--ld) both}
+.finale-has-flight .finale-aura{animation:finale-land-aura var(--finale-ms) ease both}
+.finale-has-flight .finale-ring{animation-delay:calc(var(--land-ms) + var(--rd))}
+.finale-has-flight .finale-orb{animation:finale-land-badge var(--finale-ms) both}
+.finale-impact{position:absolute;inset:-10%;animation:finale-impact-burst .85s ease-out var(--land-ms) both}
+.finale-impact-ray{position:absolute;left:50%;top:50%;width:var(--ray-length);height:2px;transform-origin:left center;transform:rotate(var(--ray-angle)) translateX(20%);background:linear-gradient(90deg,#fff,#73f7ff,transparent);filter:drop-shadow(0 0 4px #44e8ff)}
+.finale-has-flight .finale-attacker{animation:finale-target-charge var(--land-ms) ease both}
+.finale-target-victim{animation:finale-victim-out .25s ease var(--land-ms) forwards}
+.finale-losing{animation:finale-king-out-delayed 1ms linear var(--shatter-ms) forwards}
+.finale-losing .piece{filter:drop-shadow(0 0 8px #ff4d68) drop-shadow(0 0 16px #fa5468)}
+.finale-fracture{position:absolute;inset:5%;color:#ffb5be;filter:drop-shadow(0 0 4px #ff294c);animation:finale-fracture .55s ease 1.8s both}
+.finale-fracture svg{width:100%;height:100%}
+.finale-mate .finale-chunk,.finale-mate .finale-chip,.finale-mate .finale-crack-ring{animation-delay:var(--shatter-ms)}
+@keyframes finale-sky-flight{
+  0%,12%{transform:translate(-50%,-50%) translate(var(--fx0),var(--fy0)) rotate(0) scale(1)}
+  26%{transform:translate(-50%,-50%) translate(var(--fx1),var(--fy1)) rotate(-35deg) scale(1.13)}
+  42%{transform:translate(-50%,-50%) translate(var(--fx2),var(--fy2)) rotate(-95deg) scale(1.28)}
+  58%{transform:translate(-50%,-50%) translate(var(--fx3),var(--fy3)) rotate(-160deg) scale(1.25)}
+  76%{transform:translate(-50%,-50%) translate(var(--fx4),var(--fy4)) rotate(-255deg) scale(1.15)}
+  94%{transform:translate(-50%,-50%) translate(var(--fx5),var(--fy5)) rotate(-360deg) scale(.93)}
+  100%{transform:translate(-50%,-50%) rotate(-360deg) scale(1)}
+}
+@keyframes finale-trail{0%,12%{stroke-dashoffset:1;opacity:0}20%{opacity:1}94%,100%{stroke-dashoffset:0;opacity:1}}
+@keyframes finale-trail-fade{to{opacity:0}}
+@keyframes finale-launch-ring{0%{opacity:0;transform:scale(.6)}25%{opacity:.9}100%{opacity:0;transform:scale(2.4)}}
+@keyframes finale-sky-camera{0%{transform:scale(1)}18%{transform:perspective(850px) rotateZ(-2deg) scale(.96)}40%{transform:perspective(850px) rotateZ(2deg) rotateY(-3deg) scale(.98)}56%{transform:perspective(850px) rotateZ(-1deg) scale(1.04)}76%{transform:rotateZ(.8deg) scale(1.07)}100%{transform:scale(1)}}
+@keyframes finale-land-aura{0%,38%{opacity:0}55%,88%{opacity:1}100%{opacity:0}}
+@keyframes finale-land-badge{0%,38%{opacity:0;scale:.4}55%{opacity:1;scale:1.15}64%,90%{opacity:1;scale:1}100%{opacity:0;scale:.8}}
+@keyframes finale-impact-burst{0%{opacity:0;transform:scale(.25)}15%{opacity:1}100%{opacity:0;transform:scale(1.8)}}
+@keyframes finale-target-charge{0%{filter:brightness(.7)}70%{filter:brightness(1)}100%{filter:brightness(1.5)}}
+@keyframes finale-victim-out{to{opacity:0;transform:rotate(70deg) scale(.65)}}
+@keyframes finale-king-out-delayed{to{opacity:0}}
+@keyframes finale-fracture{0%{opacity:0}30%,90%{opacity:.95}100%{opacity:0}}

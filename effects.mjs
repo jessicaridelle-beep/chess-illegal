@@ -134,9 +134,11 @@ export function playFinaleSound(mate){
   const a=unlockSound();if(!a)return false
   try{
     const t=a.currentTime+.015
-    tone(a,t,95,40,.48,.10,'sine');tone(a,t,240,720,.44,.055,'triangle')
-    if(mate){const hit=t+.55;tone(a,hit,130,35,.28,.14,'triangle');noise(a,hit,.24,.14,2200);noise(a,hit+.04,.25,.07,5000,'highpass')}
-    const start=t+(mate?.78:.25)
+    tone(a,t,95,180,.7,.06,'sine');tone(a,t+.28,240,880,.95,.04,'triangle')
+    tone(a,t+1.15,700,110,.48,.045,'triangle')
+    const land=t+1.7;tone(a,land,125,35,.35,.12,'sine');noise(a,land,.22,.07,2500)
+    if(mate){const hit=t+2.35;tone(a,hit,130,35,.28,.14,'triangle');noise(a,hit,.24,.14,2200);noise(a,hit+.04,.25,.07,5000,'highpass')}
+    const start=t+(mate?2.75:1.9)
     ;[330,440,554,660].forEach((hz,i)=>tone(a,start+i*.085,hz,hz,.26,.055,'triangle'))
     return true
   }catch{return false}
