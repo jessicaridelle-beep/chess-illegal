@@ -1,5 +1,5 @@
 // Real board-state cinematics, not a prerecorded chess position.
-export const MATE_MS=4100,BRILLIANT_MS=3200
+export const MATE_MS=4750,BRILLIANT_MS=3200
 export const LAND_MS=1700,SHATTER_MS=2350
 export const isMate=result=>!!result?.winner&&['Checkmate','Sandbox checkmate'].includes(result.reason)
 export const isBrilliant=grade=>['brilliant','illegalBrilliant'].includes(grade?.key)
@@ -8,6 +8,20 @@ export const canPlayFinale=(entry,grade,result,prefs)=>!!entry?.id&&prefs.effect
 export function defeatedRoyals(state){
   if(!isMate(state.result))return []
   return Object.entries(state.b).filter(([,p])=>p.c!==state.result.winner&&(p.t==='k'||p.t==='godking'||p.royal)).map(([sq,p])=>({sq,t:p.t,c:p.c}))
+}
+// A finisher is attributed to a piece actually attacking a defeated royal.
+export function mateFinisher(state,entry,attack){
+  const kings=defeatedRoyals(state),winner=state.result?.winner,to=entry?.fx?.to||entry?.sq
+  if(!kings.length)return null
+  const allies=Object.entries(state.b).filter(([,p])=>p.c===winner)
+  const pairs=[]
+  for(const king of kings)for(const [sq,p] of allies){
+    if(attack?.(sq,king.sq))pairs.push({attacker:{sq,t:p.t,c:p.c},king})
+  }
+  return pairs.find(x=>x.attacker.sq===to)||pairs[0]||{attacker:null,king:kings[0]}
+}
+export function finisherStyle(type){
+  return ({q:{color:'#bb62ff',name:'Queen',pattern:'burst'},r:{color:'#57f482',name:'Rook',pattern:'straight'},b:{color:'#4ee6ff',name:'Bishop',pattern:'diagonal'},n:{color:'#ffb34e',name:'Knight',pattern:'leap'},p:{color:'#ffd96a',name:'Pawn',pattern:'spark'},k:{color:'#f9eaff',name:'King',pattern:'ring'}})[type]||{color:'#c6a2ff',name:type?'Custom piece':'Checkmate',pattern:'ring'}
 }
 export function scenePoint(sq,size,view){
   if(!sq)return null
@@ -48,6 +62,39 @@ const clips=['0% 0%,100% 0%,100% 26%,56% 37%,37% 30%,0% 39%','0% 39%,37% 30%,56%
 const offsets=[[-15,-120,-50],[-130,-18,-65],[130,-10,72],[22,125,35]]
 function node(tag,cls,parent){const n=document.createElement(tag);n.className=cls;parent.append(n);return n}
 function vars(n,obj){for(const [k,v] of Object.entries(obj))n.style.setProperty(k,v)}
+function renderMateCutaway(layer,match,art){
+  if(!match)return
+  const {attacker,king}=match,theme=finisherStyle(attacker?.t)
+  const cut=node('div','mate-cutaway mate-'+theme.pattern,layer)
+  cut.dataset.finisher=attacker?.t||'neutral'
+  vars(cut,{'--mate-accent':theme.color})
+  node('div','mate-cutaway-haze',cut)
+  const title=node('div','mate-cutaway-title',cut)
+  title.textContent=attacker?theme.name+' · Checkmate':'Checkmate'
+  const ns='http://www.w3.org/2000/svg',svg=document.createElementNS(ns,'svg')
+  svg.setAttribute('class','mate-cutaway-paths');svg.setAttribute('viewBox','0 0 100 100')
+  if(attacker){
+    const paths=theme.pattern==='leap'?['M 25 52 Q 34 8 52 24 T 75 52','M 25 52 L 25 24 L 75 24 L 75 52']:theme.pattern==='diagonal'?['M 25 70 L 75 30','M 25 78 L 75 38']:theme.pattern==='burst'?['M 25 52 L 75 52','M 25 52 L 71 31','M 25 52 L 71 73']:theme.pattern==='straight'?['M 25 52 L 75 52','M 25 48 L 75 48','M 25 56 L 75 56']:theme.pattern==='spark'?['M 25 64 L 75 40']:['M 25 52 Q 50 22 75 52','M 25 52 Q 50 82 75 52']
+    for(const d of paths)for(const cls of ['mate-path-halo','mate-path-core']){
+      const p=document.createElementNS(ns,'path');p.setAttribute('class',cls);p.setAttribute('d',d);p.setAttribute('pathLength','1');svg.append(p)
+    }
+    const hero=node('div','mate-cutaway-hero',cut);hero.innerHTML=art(attacker.t,attacker.c)
+  }
+  cut.append(svg)
+  const target=node('div','mate-cutaway-target',cut),markup=art(king.t,king.c)
+  const intact=node('div','mate-cutaway-intact',target);intact.innerHTML=markup
+  for(let i=0;i<clips.length;i++){
+    const wrap=node('span','mate-cutaway-chunk',target),part=node('span','finale-clip',wrap)
+    part.style.clipPath='polygon('+clips[i]+')';part.innerHTML=markup
+    vars(wrap,{'--cx':offsets[i][0]*1.3+'%','--cy':offsets[i][1]*1.3+'%','--cr':offsets[i][2]+'deg'})
+  }
+  for(let i=0;i<44;i++){
+    const chip=node('i','mate-cutaway-chip',target),angle=i*2.399963,dist=100+(i%7)*25
+    vars(chip,{'--cx':Math.cos(angle)*dist+'%','--cy':Math.sin(angle)*dist+'%','--cr':(i*67)+'deg','--cs':(4+i%6)+'%'})
+  }
+  for(let i=0;i<3;i++){const ring=node('span','mate-cutaway-ring',target);vars(ring,{'--ring-delay':i*110+'ms'})}
+  for(let i=0;i<30;i++){const spark=node('i','mate-cutaway-star',cut);vars(spark,{'--sx':(i*37.31%100)+'%','--sy':(i*61.73%100)+'%','--sd':i%8*55+'ms'})}
+}
 export function playFinale(board,state,entry,grade,{size,view,art,attack,paths,preview=false}){
   const mate=isMate(state.result),brilliant=isBrilliant(grade),great=isGreat(grade)
   if((!mate&&!brilliant&&!great)||globalThis.matchMedia?.('(prefers-reduced-motion: reduce)').matches)return 0
@@ -108,7 +155,7 @@ export function playFinale(board,state,entry,grade,{size,view,art,attack,paths,p
   const aura=node('div','finale-aura',stage)
   node('div','finale-bloom',aura)
   const impact=node('div','finale-impact',aura)
-  for(let i=0;i<44;i++){const ray=node('i','finale-impact-ray',impact);vars(ray,{'--ray-angle':(i*360/28)+'deg','--ray-length':(22+(i%6)*8)+'%'})}
+  for(let i=0;i<44;i++){const ray=node('i','finale-impact-ray',impact);vars(ray,{'--ray-angle':(i*360/44)+'deg','--ray-length':(22+(i%6)*8)+'%'})}
   const ground=node('div','finale-ground',aura)
   for(let i=0;i<3;i++){const wave=node('span','finale-ground-wave',ground);vars(wave,{'--wave-delay':i*120+'ms'})}
   for(let i=0;i<36;i++){const spark=node('i','finale-land-spark',aura),angle=i*2.399963,dist=45+(i%9)*11;vars(spark,{'--spark-x':Math.cos(angle)*dist+'%','--spark-y':Math.sin(angle)*dist+'%','--spark-delay':(i%4)*25+'ms'})}
@@ -136,6 +183,7 @@ export function playFinale(board,state,entry,grade,{size,view,art,attack,paths,p
       node('span','finale-crack-ring',shatter)
     }
   }
+  if(mate)renderMateCutaway(layer,mateFinisher(state,entry,attack),art)
   board.append(layer)
   setTimeout(()=>layer.remove(),duration+40)
   return duration

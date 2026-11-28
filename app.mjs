@@ -1,7 +1,7 @@
 import { promotedPiece, playPromotion } from './promotion.mjs?v=promo-35'
 import { initMusic } from './music.mjs?v=music-31'
 import { actionHold, delayForPresentation, extendPresentation, preparedRatingMatches } from './presentation.mjs?v=tempo-28'
-import { isMate, isBrilliant, isGreat, canPlayFinale, playFinale } from './finale.mjs?v=impact-34'
+import { isMate, isBrilliant, isGreat, canPlayFinale, playFinale } from './finale.mjs?v=finish-36'
 import { paintEditPaths, clearEditPaths, burstEdit, editPaths, syncBadgeTint, tacticalTrails, geometryAttack } from './editfx.mjs?v=impact-34'
 import { describeEffect, effectDuration, unlockSound, playEffectSound, renderEffects, playFinaleSound, playPromotionSound } from './effects.mjs?v=promo-35'
 import { icon, names, abilities, powers, originals, pieceArt, pieceAbilities, movementDescription, passiveAbilities, areaAbilities, escapeHtml as esc } from './ui.mjs?v=boss-11'
@@ -397,13 +397,14 @@ function previewPromotion(type){
   startPromotion({t:type,c:game.view},'preview-promotion',true)
   $('preview-status').textContent='Promotion preview only; your game is unchanged.'
 }
-function previewFinale(mate=false,great=false){
-  if(duelBusy||game.pending||waitingForRating(game.logs.at(-1))||Date.now()<finaleUntil){$('preview-status').textContent='Wait for the current move to finish.';return}
+function previewFinale(mate=false,great=false,type='q'){
+  if(duelBusy||game.pending||promotionActive||waitingForRating(game.logs.at(-1))||Date.now()<finaleUntil){$('preview-status').textContent='Wait for the current move to finish.';return}
   if(globalThis.matchMedia?.('(prefers-reduced-motion: reduce)').matches){$('preview-status').textContent='Your device requests reduced motion. Cinematics are disabled by that accessibility setting.';return}
   if(game.duel)pauseDuel()
-  const state={b:mate?{h8:{c:'b',t:'k'},f7:{c:'w',t:'k'},g7:{c:'w',t:'q'}}:{h8:{c:'b',t:'k'},e2:{c:'w',t:'k'},e8:{c:'b',t:'r'},e7:{c:'w',t:'q'},f2:{c:'w',t:'p'},g7:{c:'b',t:'p'}},result:mate?{winner:'w',reason:'Checkmate'}:null,size:8}
-  const entry={id:'preview',actor:'w',sq:mate?'g7':'e7',fx:{from:mate?'g4':'b4',to:mate?'g7':'e7'}}
-  const duration=playFinale(board,state,entry,{key:great?'great':'brilliant'},{size:8,view:'w',art:(t,c)=>pieceArt(t,c,catalog()),paths:{move:mate?['g5','g6']:['c5','d6'],threat:mate?['h8']:['e8'],links:tacticalTrails(null,state,entry,(s,x,y,support)=>geometryAttack(s,x,y,support,movement))},preview:true})
+  const demo={q:['g4','g7'],r:['h3','h6'],b:['c3','f6'],n:['d6','f7'],p:['g6','g7']}[type]||['g4','g7']
+  const state={b:mate?{h8:{c:'b',t:'k'},e5:{c:'w',t:'k'},[demo[1]]:{c:'w',t:type}}:{h8:{c:'b',t:'k'},e2:{c:'w',t:'k'},e8:{c:'b',t:'r'},e7:{c:'w',t:'q'},f2:{c:'w',t:'p'},g7:{c:'b',t:'p'}},result:mate?{winner:'w',reason:'Checkmate'}:null,size:8}
+  const entry={id:'preview',actor:'w',sq:mate?demo[1]:'e7',fx:{from:mate?demo[0]:'b4',to:mate?demo[1]:'e7'}}
+  const duration=playFinale(board,state,entry,{key:great?'great':'brilliant'},{size:8,view:'w',art:(t,c)=>pieceArt(t,c,catalog()),attack:(from,to)=>movement(state.b,from,to,8,[],true),paths:{move:mate?[]:['c5','d6'],threat:mate?['h8']:['e8'],links:tacticalTrails(null,state,entry,(s,x,y,support)=>geometryAttack(s,x,y,support,movement))},preview:true})
   if(duration){finaleUntil=Date.now()+duration;lockPresentation(duration+40);if(prefs.sound)playFinaleSound(mate);board.scrollIntoView({block:'nearest'});$('preview-status').textContent='Playing a visual demo; your real position and rating are unchanged.'}
 }
 function showResultAfterFinale(){
@@ -1620,7 +1621,7 @@ decorate()
 initMusic($('music-panel'))
 $('preview-brilliant').onclick=()=>previewFinale(false)
 $('preview-great').onclick=()=>previewFinale(false,true)
-$('preview-mate').onclick=()=>previewFinale(true)
+$('preview-mate').onclick=()=>previewFinale(true,false,$('preview-finisher-piece').value)
 document.querySelectorAll('[data-preview-promotion]').forEach(b=>b.onclick=()=>previewPromotion(b.dataset.previewPromotion))
 render()
 setInterval(updateFlipCooldown,250)

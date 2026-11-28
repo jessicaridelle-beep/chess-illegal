@@ -1836,3 +1836,35 @@ input[type='checkbox'] {
 .promotion-reduced,.promotion-reduced *{animation:none!important}
 .promotion-reduced .promotion-pawn,.promotion-reduced .promotion-ring,.promotion-reduced .promotion-particle{display:none}
 .promotion-reduced .promotion-hero{transform:translate(-50%,-50%)}
+
+/* Piece-specific checkmate cutaway: deliberately separate from the live chess state. */
+.mate-cutaway{position:absolute;inset:0;z-index:20;overflow:hidden;isolation:isolate;background:#06070b;animation:mate-cutaway-in 2.85s ease 1.9s both;pointer-events:none}
+.mate-cutaway-haze{position:absolute;inset:0;background:radial-gradient(ellipse at 25% 52%,color-mix(in srgb,var(--mate-accent) 24%,transparent),transparent 40%),radial-gradient(ellipse at 75% 52%,#af273d33,transparent 37%);opacity:.9}
+.mate-cutaway-title{position:absolute;top:8%;left:0;right:0;text-align:center;color:#fff;font:800 clamp(12px,3vw,26px)/1.2 sans-serif;letter-spacing:.11em;text-transform:uppercase;text-shadow:0 0 12px var(--mate-accent);z-index:5;animation:mate-title-in .45s ease 2.12s both}
+.mate-cutaway-paths{position:absolute;inset:0;width:100%;height:100%;z-index:2;overflow:visible}
+.mate-cutaway-paths path{fill:none;stroke-linecap:round;stroke-dasharray:1;stroke-dashoffset:1;animation:mate-path-strike .65s ease-out 1.98s both}
+.mate-path-halo{stroke:var(--mate-accent);stroke-width:6;filter:blur(2px)}
+.mate-path-core{stroke:#fff;stroke-width:1.6;filter:drop-shadow(0 0 1px var(--mate-accent))}
+.mate-cutaway-hero,.mate-cutaway-target{position:absolute;width:27%;aspect-ratio:1;top:52%;display:grid;place-items:center;z-index:4}
+.mate-cutaway-hero{left:25%;filter:drop-shadow(0 0 8px var(--mate-accent)) drop-shadow(0 0 22px var(--mate-accent));animation:mate-hero-strike 2.2s cubic-bezier(.15,.7,.25,1) 1.9s both}
+.mate-leap .mate-cutaway-hero{animation-name:mate-hero-leap}
+.mate-diagonal .mate-cutaway-hero{animation-name:mate-hero-diagonal}
+.mate-straight .mate-cutaway-hero{animation-name:mate-hero-straight}
+.mate-spark .mate-cutaway-hero{animation-name:mate-hero-diagonal}
+.mate-cutaway-target{left:75%;transform:translate(-50%,-50%);filter:drop-shadow(0 0 14px #ff4d65)}
+.mate-cutaway-intact,.mate-cutaway-chunk{position:absolute;inset:0;display:grid;place-items:center}
+.mate-cutaway-intact{animation:mate-king-disappear .46s linear 1.9s both}
+.mate-cutaway-chunk{animation:finale-chunk 1.65s cubic-bezier(.12,.65,.25,1) 2.35s both}
+.mate-cutaway .piece{width:88%;height:88%;max-width:100%;max-height:100%}
+.mate-cutaway-chip{position:absolute;left:50%;top:50%;width:var(--cs);aspect-ratio:1;background:color-mix(in srgb,var(--mate-accent) 40%,white);clip-path:polygon(0 0,100% 30%,25% 100%);animation:finale-chip 1.4s ease-out 2.35s both}
+.mate-cutaway-ring{position:absolute;inset:7%;border-radius:50%;border:3px solid var(--mate-accent);box-shadow:0 0 22px var(--mate-accent);animation:finale-ring 1.2s ease-out calc(2.35s + var(--ring-delay)) both}
+.mate-cutaway-star{position:absolute;left:var(--sx);top:var(--sy);width:3px;height:3px;border-radius:50%;background:#fff;box-shadow:0 0 8px var(--mate-accent);animation:finale-drift 1.7s ease-out calc(1.95s + var(--sd)) both}
+@keyframes mate-cutaway-in{0%{opacity:0}9%,91%{opacity:1}100%{opacity:0}}
+@keyframes mate-title-in{from{opacity:0;transform:translateY(-8px)}to{opacity:1;transform:none}}
+@keyframes mate-path-strike{0%{opacity:0;stroke-dashoffset:1}12%{opacity:.9}65%{stroke-dashoffset:0;opacity:.95}100%{stroke-dashoffset:0;opacity:0}}
+@keyframes mate-hero-strike{0%{opacity:0;transform:translate(-80%,-50%) scale(.6)}15%{opacity:1;transform:translate(-50%,-50%) scale(1.12)}24%{transform:translate(-35%,-50%) scale(1.18)}45%,100%{opacity:1;transform:translate(-50%,-50%) scale(1)}}
+@keyframes mate-hero-leap{0%{opacity:0;transform:translate(-70%,-20%) rotate(-20deg) scale(.65)}14%{opacity:1;transform:translate(-15%,-130%) rotate(-70deg) scale(1.12)}23%{transform:translate(25%,-55%) rotate(5deg) scale(1.12)}45%,100%{opacity:1;transform:translate(-50%,-50%) rotate(0)}}
+@keyframes mate-hero-diagonal{0%{opacity:0;transform:translate(-100%,5%) rotate(-25deg) scale(.65)}18%{opacity:1;transform:translate(-25%,-80%) rotate(15deg) scale(1.15)}45%,100%{opacity:1;transform:translate(-50%,-50%) rotate(0)}}
+@keyframes mate-hero-straight{0%{opacity:0;transform:translate(-110%,-50%) scale(.75)}19%{opacity:1;transform:translate(15%,-50%) scale(1.08)}45%,100%{opacity:1;transform:translate(-50%,-50%)}}
+@keyframes mate-king-disappear{0%,75%{opacity:1;transform:none}95%{opacity:1;transform:rotate(6deg) scale(1.08)}100%{opacity:0}}
+@media(prefers-reduced-motion:reduce){.mate-cutaway{display:none!important}}
