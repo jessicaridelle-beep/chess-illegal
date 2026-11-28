@@ -21,8 +21,8 @@ import {
   convertPiece,
   boardSize, boardFiles, boardRanks, allSquares, expandBoard, blackHole, xy, legalBotTrial, sandboxNoMove, clonePiece, toggleImmortality, freezeBot, toggleRealityLock, consumeBotFreeze, godTrial, godPower,
 } from './game.mjs?v=boss-11'
-import { stockfishMove, compareMove } from './engine.mjs?v=boss-11'
-import { grades, reviewAction, engineGrade, displayGrade, latestBoardGrade, gradeSquares } from './review.mjs?v=illegal-marks-14'
+import { stockfishMove, compareMove, brilliantHunterMove } from './engine.mjs?v=hunter-15'
+import { grades, reviewAction, engineGrade, displayGrade, latestBoardGrade, gradeSquares } from './review.mjs?v=hunter-15'
 const $ = (id) => document.getElementById(id),
   modal = $('modal'),
   board = $('board')
@@ -64,13 +64,14 @@ let lastGradePulse=null
 let lastAnimated = game.logs.at(-1)?.id, annotations = [], arrowStart = null, revealed = new Set(game.logs.filter(x=>!x.search).map(x=>x.id))
 const catalog = () => [...originals, ...custom]
 const label = (t) => names[t] || catalog().find((x) => x.id === t)?.name || 'Custom piece'
-const botProfiles = {"rookie":["Rookie","chaos",200,"beginner"],"cat":["Bytecat","chaos",400,"beginner"],"scout":["Scout","adaptive",650,"easy"],"architect":["Architect","adaptive",900,"easy"],"trickster":["Trickster","chaos",1200,"medium"],"guardian":["Aegis","guardian",1500,"medium"],"tactician":["Tactician","adaptive",1800,"medium"],"sentinel":["Sentinel","guardian",2000,"hard"],"adaptive":["Nexus","adaptive",2200,"hard"],"oracle":["Oracle","guardian",2500,"master"],"fishlite":["Stockfish Lite","adaptive",1200,"easy","stockfish"],"fishclub":["Stockfish Club","adaptive",1800,"medium","stockfish"],"fishstrong":["Stockfish Expert","adaptive",2600,"hard","stockfish"],"fish":["Stockfish","adaptive",3200,"master","stockfish"],"fishmax":["Stockfish Max","adaptive",3500,"max","stockfish"],"gpt":["GPT / AI GOD","guardian",9999,"master","stockfish"],"owner":["OWNER","guardian","∞","max"],"illegal":["Illegal Stockfish","adaptive","ILLEGAL","max","stockfish"]}
+const botProfiles = {"rookie":["Rookie","chaos",200,"beginner"],"cat":["Bytecat","chaos",400,"beginner"],"scout":["Scout","adaptive",650,"easy"],"architect":["Architect","adaptive",900,"easy"],"trickster":["Trickster","chaos",1200,"medium"],"guardian":["Aegis","guardian",1500,"medium"],"tactician":["Tactician","adaptive",1800,"medium"],"sentinel":["Sentinel","guardian",2000,"hard"],"adaptive":["Nexus","adaptive",2200,"hard"],"oracle":["Oracle","guardian",2500,"master"],"fishlite":["Stockfish Lite","adaptive",1200,"easy","stockfish"],"fishclub":["Stockfish Club","adaptive",1800,"medium","stockfish"],"fishstrong":["Stockfish Expert","adaptive",2600,"hard","stockfish"],"fish":["Stockfish","adaptive",3200,"master","stockfish"],"fishmax":["Stockfish Max","adaptive",3500,"max","stockfish"],"gpt":["GPT / AI GOD","guardian",9999,"master","stockfish"],"owner":["OWNER","guardian","∞","max"],"illegal":["Illegal Stockfish","adaptive","ILLEGAL","max","stockfish"],"hunter":["Brilliant Hunter","adaptive","TACTICAL","max","stockfish"]}
+const isHunter=id=>id==='hunter'
 const isEngine=id=>botProfiles[id]?.[4]==='stockfish'
 const duelProfile=c=>botProfiles[game.duel?.[c]]||botProfiles.fish
 let duelRunning=false,duelBusy=false
 if(game.duel)game.pending=false
 const duelName=c=>duelProfile(c)[0]
-const duelOptions=()=>Object.entries(botProfiles).map(([id,p])=>[id,p[0]+' · '+(isBoss(id)?p[2]:p[2]+' est. Elo')])
+const duelOptions=()=>Object.entries(botProfiles).map(([id,p])=>[id,p[0]+' · '+(isBoss(id)||isHunter(id)?p[2]:p[2]+' est. Elo')])
 function duelKey(s,turn){return JSON.stringify([turn,s.rights,s.ep,s.size,(s.destroyed||[]).slice().sort(),Object.entries(s.b).sort(([a],[b])=>a.localeCompare(b))])}
 function duelAfter(s,turn,actor,action,before){
   if(isBoss(s.duel?.[actor]))return bossInfo(s,actor).turns>=BOSS_GRACE?bossOutcome(s,actor,catalog()):null
@@ -105,7 +106,7 @@ function renderDuel(){
   panel.hidden=!d
   updateFlipCooldown()
   if(!d)return
-  $('duel-state').textContent=game.result?resultTitle():duelBusy?'Thinking · '+duelName(d.turn):duelRunning?'Playing · '+colorName(d.turn):'Paused · '+colorName(d.turn)+' to move'
+  $('duel-state').textContent=game.result?resultTitle():duelBusy?(isHunter(d[d.turn])?'Hunting for a brilliant move · ':'Thinking · ')+duelName(d.turn):duelRunning?'Playing · '+colorName(d.turn):'Paused · '+colorName(d.turn)+' to move'
   $('duel-toggle').textContent=duelRunning?'Pause':'Resume'
   $('duel-toggle').disabled=!!game.result
   $('duel-step').disabled=duelRunning||duelBusy||!!game.result
@@ -130,7 +131,7 @@ async function duelStep(){
     let action=null,source=p[0],bossResult=null
     if(ch&&isEngine(id)){
       const moves=ch.moves({verbose:true})
-      if(moves.length){engine=stockfishMove(ch.fen(),p[3],moves);action=await engine.result;if(epoch!==token)return;engine=null}
+      if(moves.length){engine=isHunter(id)?brilliantHunterMove(ch.fen(),moves):stockfishMove(ch.fen(),p[3],moves);action=await engine.result;if(epoch!==token)return;engine=null;if(isHunter(id)&&!action){engine=stockfishMove(ch.fen(),'master',moves);action=await engine.result;if(epoch!==token)return;engine=null}}
     }
     if(isBoss(id)){bossResult=bossReply(game,actor,id,catalog(),undoStack,action);action=bossResult?.action;source=p[0]+(id==='illegal'&&ch?' · Stockfish + illegal search':' · sandbox')}
     else if(!action){action=sandboxReply(sim,[],p[3]==='max'?'master':p[3],p[1]);if(isEngine(id))source+=' · sandbox fallback'}
@@ -158,7 +159,7 @@ async function duelStep(){
 function duelDialog(){
   pauseDuel();renderStatus()
   const old=game.duel
-  dialog('Bot vs Bot','<p class="dialog-copy">Choose either bot for either color. Ordinary bots use normal moves. OWNER and Illegal Stockfish can use every sandbox power and cannot finish a game before their seventh move. Flip protection: only surviving pieces switch sides; boss rewinds cannot cross a flip or restore an older match. Anti-spam v3: at most three special powers in any five completed actions; actual piece moves are required between bursts. Black Hole has a shared 20-second cooldown and eight intervening actions. Illegal moves, delete and spawn retain their three-use caps. Pause to edit the board with sandbox tools.</p><label class="form-field">White bot<select id="duel-w">'+selectOptions(duelOptions(),old?.w||'fish')+'</select></label><label class="form-field">Black bot<select id="duel-b">'+selectOptions(duelOptions(),old?.b||'fishmax')+'</select></label><label class="form-field">Move delay<select id="duel-delay">'+selectOptions([['150','Fast'],['500','Normal'],['1200','Slow'],['2500','Very slow']],String(old?.delay||500))+'</select></label><label class="check-row"><input id="duel-current" type="checkbox" '+(old?'checked':'')+'> Use current board (keep custom pieces)</label><label class="form-field">Side to move on current board<select id="duel-turn">'+selectOptions([['w','White'],['b','Black']],old?.turn||'w')+'</select></label><label class="check-row"><input id="duel-marks" type="checkbox" '+(prefs.marks?'checked':'')+'> On-board move rating badges</label><label class="check-row"><input id="duel-cinematic" type="checkbox" '+(prefs.cinematic?'checked':'')+'> Cinematic move effects</label><label class="form-field">Board theme<select id="duel-theme">'+selectOptions([['green','Classic green'],['wood','Warm wood'],['blue','Midnight blue'],['mono','Monochrome'],['editgray','Chess edits · grayscale']],prefs.theme)+'</select></label><p class="dialog-note">Ratings are illustrative difficulty labels, not measured Elo. Stockfish variants use the bundled engine on compatible boards; other profiles use the sandbox engine.</p><div class="dialog-actions"><button class="secondary" id="duel-cancel">Cancel</button><button class="primary" id="duel-start">Start match</button></div>','duel')
+  dialog('Bot vs Bot','<p class="dialog-copy">Choose either bot for either color. Ordinary bots use normal moves. OWNER and Illegal Stockfish can use every sandbox power and cannot finish a game before their seventh move. Flip protection: only surviving pieces switch sides; boss rewinds cannot cross a flip or restore an older match. Anti-spam v3: at most three special powers in any five completed actions; actual piece moves are required between bursts. Black Hole has a shared 20-second cooldown and eight intervening actions. Illegal moves, delete and spawn retain their three-use caps. Pause to edit the board with sandbox tools.</p><label class="form-field">White bot<select id="duel-w">'+selectOptions(duelOptions(),old?.w||'fish')+'</select></label><label class="form-field">Black bot<select id="duel-b">'+selectOptions(duelOptions(),old?.b||'fishmax')+'</select></label><label class="form-field">Move delay<select id="duel-delay">'+selectOptions([['150','Fast'],['500','Normal'],['1200','Slow'],['2500','Very slow']],String(old?.delay||500))+'</select></label><label class="check-row"><input id="duel-current" type="checkbox" '+(old?'checked':'')+'> Use current board (keep custom pieces)</label><label class="form-field">Side to move on current board<select id="duel-turn">'+selectOptions([['w','White'],['b','Black']],old?.turn||'w')+'</select></label><label class="check-row"><input id="duel-marks" type="checkbox" '+(prefs.marks?'checked':'')+'> On-board move rating badges</label><label class="check-row"><input id="duel-cinematic" type="checkbox" '+(prefs.cinematic?'checked':'')+'> Cinematic move effects</label><label class="form-field">Board theme<select id="duel-theme">'+selectOptions([['green','Classic green'],['wood','Warm wood'],['blue','Midnight blue'],['mono','Monochrome'],['editgray','Chess edits · grayscale']],prefs.theme)+'</select></label><p class="dialog-note">Brilliant Hunter can play either color and searches for engine-supported sacrifices on standard boards. Ratings are illustrative difficulty labels, not measured Elo. Stockfish variants use the bundled engine on compatible boards; other profiles use the sandbox engine.</p><div class="dialog-actions"><button class="secondary" id="duel-cancel">Cancel</button><button class="primary" id="duel-start">Start match</button></div>','duel')
   $('duel-cancel').onclick=()=>modal.close()
   $('duel-start').onclick=()=>{
     const keep=$('duel-current').checked,w=$('duel-w').value,b=$('duel-b').value,delay=Number($('duel-delay').value),turn=keep?$('duel-turn').value:'w'
@@ -274,6 +275,7 @@ function recordPly(before, action, actor, nextSide, text, by) {
 }
 function annotateAction(entry,before,action,actor,assessment=reviewAction(before,game,action,actor,game.result)){
   const sq=action.to||action.from||null
+  if(action.hunterGrade?.key==='brilliant'&&assessment.search)assessment={grade:action.hunterGrade}
   Object.assign(entry,assessment,{id:crypto.randomUUID(),sq,actor,fx:{from:action.from,to:action.to,power:action.power,capture:!!before.b[action.to],promotion:!!action.promotion}})
   if(game.duel)for(const old of game.logs)if(old!==entry&&old.search)delete old.search
   if(assessment.search)reviewQueue()
@@ -848,10 +850,11 @@ async function botMove(token) {
       game.result = matchOutcome(game, game, c)
       pass = game.result?.reason || 'No legal move'
     } else {
-      engine = stockfishMove(ch.fen(), profile()[3], moves)
+      engine = isHunter(prefs.bot)?brilliantHunterMove(ch.fen(),moves):stockfishMove(ch.fen(), profile()[3], moves)
       action = await engine.result
       if (epoch !== token) return
       engine = null
+      if(isHunter(prefs.bot)&&!action){engine=stockfishMove(ch.fen(),'master',moves);action=await engine.result;if(epoch!==token)return;engine=null}
       if (!action) {
         action = moves.slice().sort((a, b) => Number(b.isCapture()) - Number(a.isCapture()))[0]
         by = 'Reserve bot'
@@ -1098,7 +1101,7 @@ function selectOptions(values, current) {
     .join('')
 }
 function botFields(){
-  return '<label class="form-field">Opponent · estimated Elo<select id="opponent">'+selectOptions(Object.entries(botProfiles).map(([id,p])=>[id,p[0]+' · '+p[2]+' Elo'+(id==='gpt'?' · AI GOD':'')]),prefs.bot)+'</select></label><p class="dialog-copy">OWNER and Illegal Stockfish use all powers, with a seven-boss-move grace period. GPT / AI GOD has limited powers. Other bots have none. Ratings are fictional difficulty targets, not measured Elo.</p>'
+  return '<label class="form-field">Opponent · estimated Elo<select id="opponent">'+selectOptions(Object.entries(botProfiles).map(([id,p])=>[id,p[0]+' · '+(isHunter(id)?'Sacrifice search':p[2]+' Elo')+(id==='gpt'?' · AI GOD':'')]),prefs.bot)+'</select></label><p class="dialog-copy">OWNER and Illegal Stockfish use all powers, with a seven-boss-move grace period. GPT / AI GOD has limited powers. Brilliant Hunter searches for sound sacrifices, then plays its best legal move if no brilliant candidate qualifies. Other bots have no powers. Ratings are fictional difficulty targets, not measured Elo.</p>'
 }
 function readBotFields(){prefs.bot=$('opponent').value;prefs.level=profile()[3]}
 function settings() {

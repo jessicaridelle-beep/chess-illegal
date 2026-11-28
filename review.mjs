@@ -249,3 +249,23 @@ export function latestBoardGrade(logs){
   if(!entry?.grade||!entry.fx||(!entry.sq&&!entry.fx.power))return null
   return entry
 }
+
+export function sacrificeCandidates(fen){
+  const ch=new Chess(fen),out=[]
+  for(const m of ch.moves({verbose:true})){
+    if((value[m.piece]||0)<3)continue
+    ch.move(m)
+    const offered=exchangeGain(ch,m.to)-(value[m.captured]||0)
+    ch.undo()
+    if(offered>=1.75)out.push(m.from+m.to+(m.promotion||''))
+  }
+  return out
+}
+export function chooseHunterMove(best,offer,alternative){
+  if(!best?.move||!best?.score)return null
+  if(offer?.move&&offer.score&&alternative?.score){
+    const rating=engineGrade({played:offer.move,offer:true},{best,actual:offer,alternative})
+    if(rating.key==='brilliant')return {uci:offer.move,grade:{...rating,source:'Stockfish · Brilliant Hunter sacrifice search'}}
+  }
+  return {uci:best.move}
+}

@@ -1,3 +1,4 @@
+import { sacrificeCandidates, chooseHunterMove } from './review.mjs?v=hunter-15'
 // A worker belongs to one job. Reuse it for both root searches in a move review.
 function engineJob(requests, skill, onComplete) {
   let worker, timer, finish
@@ -64,4 +65,36 @@ export function compareMove(fen, played, alternatives = []) {
   return engineJob(requests,20,([best,actual,alternative]) =>
     best.score && actual.score && actual.move===played ? {best,actual,alternative:alternative?.score?alternative:null}:null
   )
+}
+
+export function brilliantHunterMove(fen,allowed){
+  let active=null,cancelled=false
+  const byUci=new Map(allowed.map(m=>[m.from+m.to+(m.promotion||''),m]))
+  const go='go depth 18 movetime 1600'
+  const result=(async()=>{
+    const offers=sacrificeCandidates(fen).filter(x=>byUci.has(x))
+    const requests=[{fen,go}]
+    if(offers.length)requests.push({fen,go:go+' searchmoves '+offers.join(' ')})
+    active=engineJob(requests,20,answers=>answers)
+    const answers=await active.result
+    if(cancelled||!answers)return null
+    const [best,offer]=answers
+    if(!best?.score||!byUci.has(best.move))return null
+    let alternative=null
+    if(offer?.score&&offers.includes(offer.move)){
+      const remaining=[...byUci.keys()].filter(m=>m!==offer.move)
+      if(remaining.length){
+        if(best.move!==offer.move)alternative=best
+        else{
+          active=engineJob([{fen,go:go+' searchmoves '+remaining.join(' ')}],20,([answer])=>answer)
+          alternative=await active.result
+          if(cancelled)return null
+        }
+      }
+    }
+    const selected=chooseHunterMove(best,offers.includes(offer?.move)?offer:null,alternative)
+    if(!selected||!byUci.has(selected.uci))return null
+    return {...byUci.get(selected.uci),...(selected.grade?{hunterGrade:selected.grade}:{})}
+  })().catch(()=>null)
+  return {result,cancel:()=>{cancelled=true;active?.cancel()}}
 }
