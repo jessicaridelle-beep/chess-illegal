@@ -1498,3 +1498,43 @@ input[type='checkbox'] {
 .square.rated-square .grade-pin.grade-brilliant,.square.rated-square .grade-pin.grade-illegalBrilliant{box-shadow:0 0 12px var(--grade-bg),0 2px 6px #0005}
 .grade-hero small{display:block;font-size:12px;letter-spacing:.08em;text-transform:uppercase;margin-top:8px}
 @media (prefers-reduced-motion:no-preference){.square.piece-arrival .grade-pin,.square.power-flash .grade-pin{animation:mark-pop .36s cubic-bezier(.15,1.3,.3,1) both}@keyframes mark-pop{0%{opacity:0;scale:.35}70%{opacity:1;scale:1.15}100%{opacity:1;scale:1}}}
+
+/* Edit-style move annotations: flat chess colors, twin-square trails and true corner badges. */
+.board[data-theme="editgray"]{--light:#f2f2f0;--dark:#929291}
+.grade-book{--grade-bg:#a88862;--grade-fg:#fff}
+.grade-brilliant{--grade-bg:#26a69a;--grade-fg:#fff}
+.grade-best,.grade-winning{--grade-bg:#81b64c;--grade-fg:#fff}
+.grade-great{--grade-bg:#5c8db0;--grade-fg:#fff}
+.grade-mistake{--grade-bg:#ffa459;--grade-fg:#fff}
+.grade-blunder{--grade-bg:#e34b48;--grade-fg:#fff}
+.grade-inaccuracy{--grade-bg:#eac34b;--grade-fg:#fff}
+.square.rated-origin:not(.king-check):not(.destroyed-square),.square.rated-square:not(.king-check):not(.destroyed-square){
+  background-image:linear-gradient(color-mix(in srgb,var(--grade-bg) 80%,transparent),color-mix(in srgb,var(--grade-bg) 80%,transparent));
+  box-shadow:none
+}
+.square.rated-origin.dark:not(.king-check):not(.destroyed-square),.square.rated-square.dark:not(.king-check):not(.destroyed-square){
+  background-image:linear-gradient(color-mix(in srgb,var(--grade-bg) 89%,transparent),color-mix(in srgb,var(--grade-bg) 89%,transparent))
+}
+.square.rated-origin.immortal-piece,.square.rated-square.immortal-piece{outline:2px solid #ffd36e;outline-offset:-2px}
+.square.rated-square{z-index:6}
+.square.rated-square .grade-pin{
+  --pin-x:50%;--pin-y:-50%;
+  position:absolute;top:0;right:0;transform:translate(var(--pin-x),var(--pin-y));
+  width:38%;height:38%;max-width:42px;max-height:42px;min-width:12px;min-height:12px;
+  border:0;border-radius:50%;box-shadow:0 1px 3px #0002;text-shadow:0 1px 1px #0005;
+  font:900 clamp(9px,2.1vw,24px)/1 Arial,sans-serif;letter-spacing:-.06em;
+  z-index:12;isolation:isolate
+}
+.square.rating-edge-top .grade-pin{--pin-y:7%}
+.square.rating-edge-right .grade-pin{--pin-x:-7%}
+.grade-pin svg{display:block;width:67%;height:67%;overflow:visible;filter:drop-shadow(0 1px .4px #0005)}
+.grade-pin .grade-symbol{line-height:1;transform:translateX(-.02em)}
+.square.rated-square .grade-pin.grade-brilliant,.square.rated-square .grade-pin.grade-illegalBrilliant{box-shadow:0 1px 3px #0002}
+.grade-pin::after{content:'';position:absolute;inset:-1px;border:2px solid var(--grade-bg);border-radius:50%;opacity:0;pointer-events:none}
+@media (prefers-reduced-motion:no-preference){
+ .square.rated-square .grade-pin.grade-pulse{animation:edits-pop .3s cubic-bezier(.15,1.3,.3,1) both}
+ .grade-pin.grade-pulse::after{animation:edits-ring .65s ease-out both}
+ @keyframes edits-pop{0%{scale:.45;opacity:.5}60%{scale:1.13;opacity:1}100%{scale:1;opacity:1}}
+ @keyframes edits-ring{0%{scale:1;opacity:.9}100%{scale:2;opacity:0}}
+}
+@media (prefers-reduced-motion:reduce){.grade-pin,.grade-pin::after{animation:none!important}}

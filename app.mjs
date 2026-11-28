@@ -22,7 +22,7 @@ import {
   boardSize, boardFiles, boardRanks, allSquares, expandBoard, blackHole, xy, legalBotTrial, sandboxNoMove, clonePiece, toggleImmortality, freezeBot, toggleRealityLock, consumeBotFreeze, godTrial, godPower,
 } from './game.mjs?v=boss-11'
 import { stockfishMove, compareMove } from './engine.mjs?v=boss-11'
-import { grades, reviewAction, engineGrade, displayGrade, latestBoardGrade } from './review.mjs?v=marks-12'
+import { grades, reviewAction, engineGrade, displayGrade, latestBoardGrade, gradeSquares } from './review.mjs?v=edits-13'
 const $ = (id) => document.getElementById(id),
   modal = $('modal'),
   board = $('board')
@@ -60,6 +60,7 @@ let mode = 'move',
   timer = null,
   dialogPage = '',
   storageIssue = false
+let lastGradePulse=null
 let lastAnimated = game.logs.at(-1)?.id, annotations = [], arrowStart = null, revealed = new Set(game.logs.filter(x=>!x.search).map(x=>x.id))
 const catalog = () => [...originals, ...custom]
 const label = (t) => names[t] || catalog().find((x) => x.id === t)?.name || 'Custom piece'
@@ -157,11 +158,11 @@ async function duelStep(){
 function duelDialog(){
   pauseDuel();renderStatus()
   const old=game.duel
-  dialog('Bot vs Bot','<p class="dialog-copy">Choose either bot for either color. Ordinary bots use normal moves. OWNER and Illegal Stockfish can use every sandbox power and cannot finish a game before their seventh move. Flip protection: only surviving pieces switch sides; boss rewinds cannot cross a flip or restore an older match. Anti-spam v3: at most three special powers in any five completed actions; actual piece moves are required between bursts. Black Hole has a shared 20-second cooldown and eight intervening actions. Illegal moves, delete and spawn retain their three-use caps. Pause to edit the board with sandbox tools.</p><label class="form-field">White bot<select id="duel-w">'+selectOptions(duelOptions(),old?.w||'fish')+'</select></label><label class="form-field">Black bot<select id="duel-b">'+selectOptions(duelOptions(),old?.b||'fishmax')+'</select></label><label class="form-field">Move delay<select id="duel-delay">'+selectOptions([['150','Fast'],['500','Normal'],['1200','Slow'],['2500','Very slow']],String(old?.delay||500))+'</select></label><label class="check-row"><input id="duel-current" type="checkbox" '+(old?'checked':'')+'> Use current board (keep custom pieces)</label><label class="form-field">Side to move on current board<select id="duel-turn">'+selectOptions([['w','White'],['b','Black']],old?.turn||'w')+'</select></label><label class="check-row"><input id="duel-marks" type="checkbox" '+(prefs.marks?'checked':'')+'> On-board move rating badges</label><label class="check-row"><input id="duel-cinematic" type="checkbox" '+(prefs.cinematic?'checked':'')+'> Cinematic move effects</label><p class="dialog-note">Ratings are illustrative difficulty labels, not measured Elo. Stockfish variants use the bundled engine on compatible boards; other profiles use the sandbox engine.</p><div class="dialog-actions"><button class="secondary" id="duel-cancel">Cancel</button><button class="primary" id="duel-start">Start match</button></div>','duel')
+  dialog('Bot vs Bot','<p class="dialog-copy">Choose either bot for either color. Ordinary bots use normal moves. OWNER and Illegal Stockfish can use every sandbox power and cannot finish a game before their seventh move. Flip protection: only surviving pieces switch sides; boss rewinds cannot cross a flip or restore an older match. Anti-spam v3: at most three special powers in any five completed actions; actual piece moves are required between bursts. Black Hole has a shared 20-second cooldown and eight intervening actions. Illegal moves, delete and spawn retain their three-use caps. Pause to edit the board with sandbox tools.</p><label class="form-field">White bot<select id="duel-w">'+selectOptions(duelOptions(),old?.w||'fish')+'</select></label><label class="form-field">Black bot<select id="duel-b">'+selectOptions(duelOptions(),old?.b||'fishmax')+'</select></label><label class="form-field">Move delay<select id="duel-delay">'+selectOptions([['150','Fast'],['500','Normal'],['1200','Slow'],['2500','Very slow']],String(old?.delay||500))+'</select></label><label class="check-row"><input id="duel-current" type="checkbox" '+(old?'checked':'')+'> Use current board (keep custom pieces)</label><label class="form-field">Side to move on current board<select id="duel-turn">'+selectOptions([['w','White'],['b','Black']],old?.turn||'w')+'</select></label><label class="check-row"><input id="duel-marks" type="checkbox" '+(prefs.marks?'checked':'')+'> On-board move rating badges</label><label class="check-row"><input id="duel-cinematic" type="checkbox" '+(prefs.cinematic?'checked':'')+'> Cinematic move effects</label><label class="form-field">Board theme<select id="duel-theme">'+selectOptions([['green','Classic green'],['wood','Warm wood'],['blue','Midnight blue'],['mono','Monochrome'],['editgray','Chess edits · grayscale']],prefs.theme)+'</select></label><p class="dialog-note">Ratings are illustrative difficulty labels, not measured Elo. Stockfish variants use the bundled engine on compatible boards; other profiles use the sandbox engine.</p><div class="dialog-actions"><button class="secondary" id="duel-cancel">Cancel</button><button class="primary" id="duel-start">Start match</button></div>','duel')
   $('duel-cancel').onclick=()=>modal.close()
   $('duel-start').onclick=()=>{
     const keep=$('duel-current').checked,w=$('duel-w').value,b=$('duel-b').value,delay=Number($('duel-delay').value),turn=keep?$('duel-turn').value:'w'
-    prefs.marks=$('duel-marks').checked;prefs.cinematic=$('duel-cinematic').checked
+    prefs.marks=$('duel-marks').checked;prefs.cinematic=$('duel-cinematic').checked;prefs.theme=$('duel-theme').value
     checkpoint();if(!keep)game=fresh();else beginRealityTimeline(game)
     game.result=null;game.pending=false;game.doubleTurn=0;game.frozenTurns=0;game.checkmateImmunity=false;game.bossState={};game.bossActionStreak=null;game.bossRecentActions=[];game.bossHoleUntil=0;game.realityFlipUntil=0;game.realityFlipNeedsAction=false
     game.duel={w,b,delay,turn,plies:0,half:0,positions:[duelKey(game,turn)]};game.view='w';game.side='w';spawnColor='w';mode='move';resetSelection();modal.close();duelRunning=true;save();render();scheduleDuel()
@@ -288,7 +289,7 @@ function revealGrade(entry) {
   if (!entry?.id || !entry.grade || entry.search || revealed.has(entry.id)) return
   revealed.add(entry.id)
   const d=displayGrade(entry),k=d.key
-  if (!prefs.effects || !prefs.cinematic || !['brilliant','illegalBrilliant','great','blunder','miss','winning'].includes(k)) return
+  if (!prefs.effects || !prefs.cinematic || !['illegalBrilliant','winning'].includes(k)) return
   const {title,mark}=d
   board.querySelector('.grade-cinematic')?.remove()
   const overlay = document.createElement('div')
@@ -309,6 +310,15 @@ function revealGrade(entry) {
     } catch {}
   }
 }
+function gradeGlyph(d){
+  // Vector symbols stay crisp and centered at any board size.
+  const svg=(path)=>'<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">'+path+'</svg>'
+  if(d.key==='best')return svg('<path fill="currentColor" d="m12 1.8 3.2 6.6 7.3 1-5.3 5.2 1.3 7.3-6.5-3.5-6.5 3.5 1.3-7.3L1.5 9.4l7.3-1z"/>')
+  if(d.key==='book')return svg('<path fill="currentColor" d="M2 4c3-1 6-.6 9 1.4v15c-3-2-6-2.4-9-1.4zm20 0c-3-1-6-.6-9 1.4v15c3-2 6-2.4 9-1.4z"/>')
+  if(d.key==='miss')return svg('<path d="m6 6 12 12M18 6 6 18" fill="none" stroke="currentColor" stroke-width="3.5" stroke-linecap="round"/>')
+  if(d.key==='good'||d.key==='excellent')return svg('<path d="m4 12 5 5L20 6" fill="none" stroke="currentColor" stroke-width="3.5" stroke-linecap="round" stroke-linejoin="round"/>')
+  return '<span class="grade-symbol">'+esc(d.mark)+'</span>'
+}
 function paintReview(){
   const last=[...game.logs].reverse().find(item=>item.grade)
   const box=$('move-review')
@@ -317,15 +327,26 @@ function paintReview(){
     box.innerHTML=gradeChip(last)+'<div><strong>'+esc(last.by+' · '+last.text)+'</strong><p>'+esc(last.search?'Stockfish is reviewing the move.':last.grade.detail)+'</p></div><small>'+esc(last.search?'Pending engine review':last.grade.source+(Number.isFinite(last.grade.accuracy)?' · '+last.grade.accuracy.toFixed(1)+'% expected-score retention':''))+'</small>'
   }
   board.querySelectorAll('.grade-pin').forEach(pin=>pin.remove())
-  board.querySelectorAll('.rated-square').forEach(s=>{s.classList.remove('rated-square');for(const k of Object.keys(grades))s.classList.remove('grade-'+k)})
+  board.querySelectorAll('.rated-square,.rated-origin').forEach(s=>{s.classList.remove('rated-square','rated-origin','rating-edge-top','rating-edge-right');for(const k of Object.keys(grades))s.classList.remove('grade-'+k)})
   if(!prefs.marks)return
   const marked=latestBoardGrade(game.logs)
   if(!marked)return
-  const d=displayGrade(marked),square=board.querySelector('[data-sq="'+marked.sq+'"]')
-  if(!square||!d)return
-  square.classList.add('rated-square','grade-'+d.key)
-  const title=d.title+(d.pending?' · engine review pending':d.estimated?' · sandbox estimate':'')
-  square.insertAdjacentHTML('beforeend','<span class="grade-pin grade-'+d.key+(d.pending?' grade-provisional':'')+'" title="'+esc(title)+'" aria-label="'+esc(title)+'">'+esc(d.mark)+'</span>')
+  const d=displayGrade(marked)
+  if(!d)return
+  const pulseKey=marked.id+':'+d.key+':'+d.pending
+  const pulse=prefs.effects&&prefs.cinematic&&lastGradePulse!==pulseKey
+  lastGradePulse=pulseKey
+  for(const target of gradeSquares(marked)){
+    const square=board.querySelector('[data-sq="'+target.sq+'"]')
+    if(!square)continue
+    square.classList.add(target.role==='origin'?'rated-origin':'rated-square','grade-'+d.key)
+    if(target.role==='origin')continue
+    const index=[...board.querySelectorAll('.square')].indexOf(square),size=boardSize(game)
+    if(index>=0&&index<size)square.classList.add('rating-edge-top')
+    if(index>=0&&index%size===size-1)square.classList.add('rating-edge-right')
+    const title=d.title+(d.pending?' · engine review pending':d.estimated?' · sandbox estimate':'')
+    square.insertAdjacentHTML('beforeend','<span class="grade-pin grade-'+d.key+(d.pending?' grade-provisional':'')+(pulse?' grade-pulse':'')+'" title="'+esc(title)+'" aria-label="'+esc(title)+'">'+gradeGlyph(d)+'</span>')
+  }
 }
 
 function resultTitle() {
@@ -1030,7 +1051,7 @@ function showHelp() {
     ],
     [
       'Move review',
-      'Stockfish compares ordinary moves with its best line. A brilliant move offers material while keeping a strong evaluation. Freeform moves and powers get a sandbox estimate based on material and immediate threats. Sandbox estimates are labeled separately from verified engine grades. Brilliant engine grades require an engine-supported sacrifice. Purple illegal-brilliant marks are labeled sandbox estimates. Open Move history for both sides’ grades.',
+      'Stockfish compares ordinary moves with its best line. A brilliant move offers material while keeping a strong evaluation. Freeform moves and powers get a sandbox estimate based on material and immediate threats. Sandbox estimates are labeled separately from verified engine grades. Brilliant engine grades require an engine-supported sacrifice. Purple illegal-brilliant marks are labeled sandbox estimates. A small built-in opening book identifies common known opening moves. Open Move history for both sides’ grades.',
     ],
     [
       'Move anywhere',
@@ -1100,7 +1121,7 @@ function settings() {
             '</label>',
         )
         .join('') +
-      '<label class="form-field">Board theme<select id="theme">' + selectOptions([['green','Classic green'],['wood','Warm wood'],['blue','Midnight blue'],['mono','Monochrome']],prefs.theme) + '</select></label><div class="dialog-actions"><button class="secondary" id="bot-now">Bot move now</button><button class="primary" id="apply">Save settings</button></div><div class="dialog-actions"><button class="secondary" id="clear-marks">Clear arrows</button><button class="secondary" id="resign">Resign game</button></div>',
+      '<label class="form-field">Board theme<select id="theme">' + selectOptions([['green','Classic green'],['wood','Warm wood'],['blue','Midnight blue'],['mono','Monochrome'],['editgray','Chess edits · grayscale']],prefs.theme) + '</select></label><div class="dialog-actions"><button class="secondary" id="bot-now">Bot move now</button><button class="primary" id="apply">Save settings</button></div><div class="dialog-actions"><button class="secondary" id="clear-marks">Clear arrows</button><button class="secondary" id="resign">Resign game</button></div>',
     'settings',
   )
   function apply() {

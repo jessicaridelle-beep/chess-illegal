@@ -1,3 +1,4 @@
+import { Chess } from './vendor/chess.mjs'
 import { orthodox, movement, other, boardSize } from './game.mjs?v=boss-11'
 
 const value = { p: 1, n: 3, b: 3.2, r: 5, q: 9, k: 0 }
@@ -6,6 +7,7 @@ const points = (board, side) =>
   Object.values(board).reduce((n, p) => n + worth(p) * (p.c === side ? 1 : -1), 0)
 
 export const grades = {
+  book: ['Book move', '▣'],
   brilliant: ['Brilliant', '!!'],
   great: ['Great', '!'],
   illegalBrilliant: ['Illegal brilliant', '!!'],
@@ -20,7 +22,38 @@ export const grades = {
   winning: ['Winning move', '♛'],
   drawn: ['Draw', '½'],
 }
-function grade(key, detail, source) {
+// A deliberately small, local opening book. Only exact known positions and moves get the book icon.
+const openingLines=[
+ 'e2e4 e7e5 g1f3 b8c6 f1b5 a7a6 b5a4 g8f6',
+ 'e2e4 e7e5 g1f3 b8c6 f1c4 g8f6 d2d3 f8c5',
+ 'e2e4 e7e5 g1f3 b8c6 d2d4 e5d4 f3d4',
+ 'e2e4 c7c5 g1f3 d7d6 d2d4 c5d4 f3d4',
+ 'e2e4 e7e6 d2d4 d7d5 b1c3 g8f6',
+ 'e2e4 c7c6 d2d4 d7d5 b1c3 d5e4 c3e4',
+ 'd2d4 d7d5 c2c4 e7e6 b1c3 g8f6',
+ 'd2d4 d7d5 c2c4 d5c4 g1f3 g8f6',
+ 'd2d4 d7d5 g1f3 g8f6 c1f4',
+ 'd2d4 g8f6 c2c4 e7e6 b1c3 f8b4',
+ 'c2c4 e7e5 b1c3 g8f6',
+ 'g1f3 d7d5 d2d4 g8f6'
+]
+const openingBook=new Map()
+const bookKey=ch=>ch.fen().split(' ').slice(0,4).join(' ')
+for(const line of openingLines){
+  const ch=new Chess()
+  for(const uci of line.split(' ')){
+    const k=bookKey(ch),moves=openingBook.get(k)||new Set()
+    moves.add(uci);openingBook.set(k,moves)
+    ch.move({from:uci.slice(0,2),to:uci.slice(2,4)})
+  }
+}
+export function isBookMove(ch,uci){return !!openingBook.get(bookKey(ch))?.has(uci)}
+export function gradeSquares(entry){
+  if(!entry?.grade||!entry.sq||!entry.fx)return []
+  const from=entry.fx.from
+  return [...(from&&from!==entry.sq?[{sq:from,role:'origin'}]:[]),{sq:entry.sq,role:'destination'}]
+}
+export function grade(key, detail, source) {
   return { key, detail, source }
 }
 
@@ -131,6 +164,8 @@ export function reviewMove(before, after, action, actor, outcome) {
     ?.moves({ square: from, verbose: true })
     .find((m) => m.to === to && m.promotion === promotion)
   if (!candidate) return sandbox
+  const uci=from+to+(promotion||'')
+  if(isBookMove(chess,uci))return {grade:grade('book','Recognized move in the built-in opening book.','Opening book · curated lines')}
   const fen = chess.fen()
   const alternatives = chess.moves({verbose:true}).map(m=>m.from+m.to+(m.promotion||'')).filter(m=>m!==from+to+(promotion||''))
   chess.move(candidate)
