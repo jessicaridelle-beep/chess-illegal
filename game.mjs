@@ -501,7 +501,7 @@ export function godPower(s,catalog=[]){
 
 /* Unrestricted boss engine. The normal-bot legality path remains separate. */
 export const BOSS_GRACE=7
-export const isBoss=id=>id==='owner'||id==='illegal'
+export const isBoss=id=>id==='owner'||id==='illegal'||id==='evolution'
 export const bossInfo=(s,c)=>s.bossState?.[c]||{turns:0,freeze:0,lock:0,immune:false,used:{}}
 // Shared and per-boss anti-spam streaks count only completed actions.
 export const bossActionKind=a=>a?.power||(a?.normal?'legal':'move')
@@ -677,15 +677,104 @@ export function bossTrial(s,a,c,id,catalog=originals,history=[]){
   n.side=oldSide;n.duelMode=s.duelMode
   return n
 }
+// EVOLUTION: a bounded online opponent model. No fabricated Elo or pretrained learning claims.
+const evolutionWeight=p=>!p?0:isRoyal(p)?26:isDivine(p)?30:({p:1,n:3,b:3.2,r:5,q:9,overlord:15,devourer:10,fusion:12}[p.t]||7)
+const evolutionMaterial=(s,c)=>Object.values(s.b).reduce((sum,p)=>sum+(p.c===c?1:-1)*evolutionWeight(p),0)
+const evolutionCategory=(a,legality)=>a.power||(legality==='illegal'?'move':'legal')
+export function observeEvolution(s,actor,action,before,legality,opponent){
+  if(opponent!=='evolution')return
+  const learner=other(actor),old=s.evolution?.[learner]||{},kind=evolutionCategory(action,legality)
+  const counts={...(old.counts||{})},heat={...(old.heat||{})},types={...(old.types||{})}
+  counts[kind]=(counts[kind]||0)+1
+  if(action.to){heat[action.to]=(heat[action.to]||0)+1}
+  const t=before.b[action.from]?.t||action.type
+  if(t)types[t]=(types[t]||0)+1
+  const damage=Math.max(0,evolutionMaterial(before,learner)-evolutionMaterial(s,learner))
+  const losses={...(old.losses||{})};losses[kind]=(losses[kind]||0)+Math.min(30,damage)
+  s.evolution={...s.evolution,[learner]:{seen:(old.seen||0)+1,counts,heat,types,losses,recent:[...(old.recent||[]),kind].slice(-8)}}
+}
+export function evolutionInfo(s,c){
+  const m=s.evolution?.[c]||{},turns=bossInfo(s,c).turns||0
+  const stage=turns<2?0:turns<4?1:turns<6?2:3
+  const counts=m.counts||{},losses=m.losses||{},seen=m.seen||0
+  const ranked=Object.keys(counts).filter(k=>k!=='legal').sort((x,y)=>(counts[y]+(losses[y]||0)/5)-(counts[x]+(losses[x]||0)/5))
+  return {stage,level:['Seed','Learning','Adaptive','Apex'][stage],seen,counts,losses,heat:m.heat||{},types:m.types||{},recent:m.recent||[],focus:ranked[0]||'movement'}
+}
+function evolutionPermitted(info,a){
+  if(info.stage===0)return !a.power&&!!a.normal
+  if(info.stage===1)return !a.power||['spawn','delete','convert','lock','immortal','clone','transform','merge'].includes(a.power)
+  return true
+}
+function evolutionExposure(s,c){
+  const enemy=other(c),own=Object.entries(s.b).filter(([,p])=>p.c===c),foes=Object.entries(s.b).filter(([,p])=>p.c===enemy)
+  const size=boardSize(s),blocked=s.destroyed||[]
+  let largest=0,pressure=0,cluster=0
+  for(const [sq,p] of own){
+    if(isDivine(p)||p.immortal)continue
+    const attacks=foes.filter(([from])=>movement(s.b,from,sq,size,blocked,true))
+    if(attacks.length){
+      if(isRoyal(p))pressure+=16
+      else {
+        const cheapest=Math.min(...attacks.map(([,q])=>evolutionWeight(q)))
+        const defendBoard={...s.b,[sq]:{...p,c:enemy}}
+        const defended=own.some(([from])=>from!==sq&&movement(defendBoard,from,sq,size,blocked,true))
+        largest=Math.max(largest,defended?Math.max(0,evolutionWeight(p)-cheapest):evolutionWeight(p))
+      }
+    }
+    const nearby=own.filter(([at])=>neighbors(sq,size).includes(at)).reduce((n,[,q])=>n+Math.min(8,evolutionWeight(q)),0)
+    cluster=Math.max(cluster,nearby)
+  }
+  return {largest,pressure,cluster}
+}
+function evolutionScore(s,t,c,a,info){
+  const k=bossActionKind(a),count=info.counts,loss=info.losses,seen=Math.max(1,info.seen)
+  const frequency=(...keys)=>keys.reduce((n,key)=>n+(count[key]||0)+(loss[key]||0)/8,0)/seen
+  const disruption=frequency('flip','rewind','double','freeze','lock')
+  const conversion=frequency('convert','control','radiance','dominion')
+  const area=frequency('hole','nova','shockwave','destroy')
+  const attacks=frequency('move','delete','control','beam','comet','consume')
+  const e=evolutionExposure(t,c)
+  let score=-e.largest*(.8+attacks*.6)-e.pressure*(1+attacks)-e.cluster*Math.min(.7,area*.35)
+  if(k==='lock')score+=Math.min(10,disruption*8+conversion*5+area*3)
+  if(k==='rewind')score+=Math.max(0,evolutionMaterial(t,c)-evolutionMaterial(s,c))*.45
+  if(k==='immortal')score+=Math.min(5,(conversion+attacks)*4)
+  if(k==='flip'&&evolutionMaterial(s,c)<0)score+=Math.min(12,-evolutionMaterial(s,c)*.25)
+  if(a.to&&t.b[a.to]?.c===c&&!t.b[a.to].immortal)score-=Math.min(4,(info.heat[a.to]||0)*.35)
+  if(k==='spawn'||k==='clone')score-=Math.max(0,Object.values(t.b).filter(p=>p.c===c).length-17)*.9
+  if(k==='freeze'||k==='double')score+=Math.min(5,disruption*4)
+  return score
+}
+// Bounded opponent lookahead: test checks and capture replies for the shortlist.
+function evolutionReplyRisk(s,c,info){
+  const enemy=other(c),candidates=bossLegalCandidates(s,enemy),before=evolutionMaterial(s,c)
+  const replies=candidates.sort((a,b)=>evolutionWeight(s.b[b.to])-evolutionWeight(s.b[a.to])).slice(0,24)
+  let risk=0
+  for(const action of replies){
+    const t=bossLegalMove(s,action,enemy);if(!t)continue
+    if(bossMatePosition(t,enemy))return 500
+    risk=Math.max(risk,before-evolutionMaterial(t,c)+bossMovementChecks(t,c).length*6)
+  }
+  // Opponents frequently teleport or convert. Model the most valuable exposed target.
+  if((info.counts.move||0)+(info.counts.convert||0)+(info.counts.delete||0)>0&&!bossInfo(s,enemy).lock){
+    const target=Math.max(0,...Object.values(s.b).filter(p=>p.c===c&&!isRoyal(p)&&!isDivine(p)&&!p.immortal).map(evolutionWeight))
+    risk+=Math.min(8,target*.35)
+  }
+  return risk
+}
 export function bossReply(s,c,id,catalog=originals,history=[],suggested=null){
+  const evolving=id==='evolution',info=evolving?evolutionInfo(s,c):null
   const enemy=other(c),m=bossInfo(s,c),squares=allSquares(s),own=Object.entries(s.b).filter(([,p])=>p.c===c),foes=Object.entries(s.b).filter(([,p])=>p.c===enemy),empty=squares.filter(sq=>!s.b[sq]),a=[]
   const val=p=>!p?0:isRoyal(p)?(p.t==='godking'?38:24):p.t==='overlord'?15:p.t==='devourer'?10:p.t==='fusion'?12:(values[p.t]||7)
   const near=sq=>{const [x,y]=xy(sq);return 1-Math.max(Math.abs(x-(boardSize(s)-1)/2),Math.abs(y-(boardSize(s)-1)/2))/boardSize(s)}
   const scoreBoard=b=>Object.values(b).reduce((v,p)=>v+(p.c===c?1:-1)*val(p),0)
   const initial=scoreBoard(s.b),bias=kind=>1.3/(1+(m.used?.[kind]||0))
-  const add=(action,score=0)=>{const kind=bossActionKind(action);if(bossPowerAllowed(s,action,c)&&canBossRepeat(s,c,kind))a.push({action,score:score+bias(kind)+Math.random()*.15})}
+  const add=(action,score=0)=>{const kind=bossActionKind(action);if((!evolving||evolutionPermitted(info,action))&&bossPowerAllowed(s,action,c)&&canBossRepeat(s,c,kind))a.push({action,score:score+bias(kind)+Math.random()*.15})}
   if(suggested)add({from:suggested.from,to:suggested.to,promotion:suggested.promotion,normal:true},4+val(s.b[suggested.to]))
   const legalCandidates=bossLegalCandidates(s,c)
+  if(evolving&&info.stage===0){
+    const ordered=legalCandidates.slice().sort((x,y)=>Number(y.from===suggested?.from&&y.to===suggested?.to)-Number(x.from===suggested?.from&&x.to===suggested?.to)||val(s.b[y.to])-val(s.b[x.to]))
+    for(const action of ordered){const t=bossTrial(s,action,c,id,catalog,history);if(t)return {action,state:t}}
+  }
   // Look at every legal destination for an immediate mate, including inherited custom movement.
   if(m.turns+1>=BOSS_GRACE){
     for(const action of legalCandidates){
@@ -730,6 +819,7 @@ export function bossReply(s,c,id,catalog=originals,history=[],suggested=null){
   }
   a.sort((x,y)=>y.score-x.score)
   let best=null,bestScore=-Infinity,checked=0
+  const evolutionShortlist=[]
   // Try the top tactical candidates plus a few of every available power, so the boss can actually use its full arsenal.
   const groups=new Map();for(const item of a){const k=bossActionKind(item.action);if(!groups.has(k))groups.set(k,[]);if(groups.get(k).length<3)groups.get(k).push(item)}
   const candidates=[...new Set([...a.slice(0,72),...Array.from(groups.values()).flat()])]
@@ -742,8 +832,16 @@ export function bossReply(s,c,id,catalog=originals,history=[],suggested=null){
     if(id==='owner')score+=item.action.power?1.5:0
     if(id==='illegal'&&suggested&&item.action.from===suggested.from&&item.action.to===suggested.to&&!item.action.power)score+=2
     if(m.turns+1>=BOSS_GRACE&&bossOutcome(t,c,catalog,item.action,s))score+=1000
+    if(evolving&&info.stage>=1)score+=evolutionScore(s,t,c,item.action,info)*(info.stage===1?.55:1)
+    if(evolving&&info.stage>=2)evolutionShortlist.push({action:item.action,state:t,score})
     if(score>bestScore){best={action:item.action,state:t};bestScore=score}
     checked++
+  }
+  if(evolving&&info.stage>=2&&evolutionShortlist.length){
+    const shortlist=evolutionShortlist.sort((x,y)=>y.score-x.score).slice(0,info.stage===3?8:4)
+    let top=null,topScore=-Infinity
+    for(const item of shortlist){const score=item.score-evolutionReplyRisk(item.state,c,info)*(info.stage===3?1.5:1);if(score>topScore){top=item;topScore=score}}
+    if(top)return {action:top.action,state:top.state}
   }
   if(best)return best
   // Exhaust the remaining candidates if the grace filter rejected the top choices.

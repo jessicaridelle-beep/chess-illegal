@@ -3,7 +3,7 @@ import {
   fresh,
   beginRealityTimeline,
   realityFlipRemaining, markRealityAction, canBossFlip, bossActionKind, bossRepeatLimit, markBossStreak, canBossRepeat, bossFamily, blackHoleRemaining, blackHoleActionGap, bossNeedsMove,
-  isBoss, BOSS_GRACE, bossInfo, bossReply, bossOutcome, clearBossImmunity, bossConsumeFreeze, bossConsumeLock, bossHasRoyal,
+  isBoss, BOSS_GRACE, bossInfo, evolutionInfo, observeEvolution, bossReply, bossOutcome, clearBossImmunity, bossConsumeFreeze, bossConsumeLock, bossHasRoyal,
   isDivine, isDestroyed, mergePieces, destroySquare, toggleCheckmateImmunity,
   clone,
   files,
@@ -20,9 +20,9 @@ import {
   threatenedKings,
   convertPiece,
   boardSize, boardFiles, boardRanks, allSquares, expandBoard, blackHole, xy, legalBotTrial, sandboxNoMove, clonePiece, toggleImmortality, freezeBot, toggleRealityLock, consumeBotFreeze, godTrial, godPower,
-} from './game.mjs?v=royal-23'
-import { stockfishMove, compareMove, brilliantHunterMove, preanalyzePosition, analysisStats, getCachedComparison } from './engine.mjs?v=royal-23'
-import { grades, reviewAction, engineGrade, displayGrade, latestBoardGrade, gradeSquares, trackerSummary, nextTrackerReview, classifyAction, lockBadge, badgeEffect, badgePulseKey, waitingForRating, finishRating } from './review.mjs?v=royal-23'
+} from './game.mjs?v=evolution-24'
+import { stockfishMove, compareMove, brilliantHunterMove, preanalyzePosition, analysisStats, getCachedComparison } from './engine.mjs?v=evolution-24'
+import { grades, reviewAction, engineGrade, displayGrade, latestBoardGrade, gradeSquares, trackerSummary, nextTrackerReview, classifyAction, lockBadge, badgeEffect, badgePulseKey, waitingForRating, finishRating } from './review.mjs?v=evolution-24'
 const $ = (id) => document.getElementById(id),
   modal = $('modal'),
   board = $('board')
@@ -64,12 +64,13 @@ let lastGradePulse=null
 let lastAnimated = game.logs.at(-1)?.id, annotations = [], arrowStart = null, revealed = new Set(game.logs.filter(x=>!x.search).map(x=>x.id))
 const catalog = () => [...originals, ...custom]
 const label = (t) => names[t] || catalog().find((x) => x.id === t)?.name || 'Custom piece'
-const botProfiles = {"rookie":["Rookie","chaos",200,"beginner"],"cat":["Bytecat","chaos",400,"beginner"],"scout":["Scout","adaptive",650,"easy"],"architect":["Architect","adaptive",900,"easy"],"trickster":["Trickster","chaos",1200,"medium"],"guardian":["Aegis","guardian",1500,"medium"],"tactician":["Tactician","adaptive",1800,"medium"],"sentinel":["Sentinel","guardian",2000,"hard"],"adaptive":["Nexus","adaptive",2200,"hard"],"oracle":["Oracle","guardian",2500,"master"],"fishlite":["Stockfish Lite","adaptive",1200,"easy","stockfish"],"fishclub":["Stockfish Club","adaptive",1800,"medium","stockfish"],"fishstrong":["Stockfish Expert","adaptive",2600,"hard","stockfish"],"fish":["Stockfish","adaptive",3200,"master","stockfish"],"fishmax":["Stockfish Max","adaptive",3500,"max","stockfish"],"gpt":["GPT / AI GOD","guardian",9999,"master","stockfish"],"owner":["OWNER","guardian","∞","max"],"illegal":["Illegal Stockfish","adaptive","ILLEGAL","max","stockfish"],"hunter":["Brilliant Hunter","adaptive","TACTICAL","max","stockfish"]}
+const botProfiles = {"rookie":["Rookie","chaos",200,"beginner"],"cat":["Bytecat","chaos",400,"beginner"],"scout":["Scout","adaptive",650,"easy"],"architect":["Architect","adaptive",900,"easy"],"trickster":["Trickster","chaos",1200,"medium"],"guardian":["Aegis","guardian",1500,"medium"],"tactician":["Tactician","adaptive",1800,"medium"],"sentinel":["Sentinel","guardian",2000,"hard"],"adaptive":["Nexus","adaptive",2200,"hard"],"oracle":["Oracle","guardian",2500,"master"],"fishlite":["Stockfish Lite","adaptive",1200,"easy","stockfish"],"fishclub":["Stockfish Club","adaptive",1800,"medium","stockfish"],"fishstrong":["Stockfish Expert","adaptive",2600,"hard","stockfish"],"fish":["Stockfish","adaptive",3200,"master","stockfish"],"fishmax":["Stockfish Max","adaptive",3500,"max","stockfish"],"gpt":["GPT / AI GOD","guardian",9999,"master","stockfish"],"owner":["OWNER","guardian","∞","max"],"illegal":["Illegal Stockfish","adaptive","ILLEGAL","max","stockfish"],"hunter":["Brilliant Hunter","adaptive","TACTICAL","max","stockfish"],"evolution":["EVOLUTION","adaptive","EVOLVING","max","stockfish"]}
 const isHunter=id=>id==='hunter'
 const isEngine=id=>botProfiles[id]?.[4]==='stockfish'
 const duelProfile=c=>botProfiles[game.duel?.[c]]||botProfiles.fish
 let duelRunning=false,duelBusy=false
 if(game.duel)game.pending=false
+const evolutionLabel=c=>{const x=evolutionInfo(game,c);return x.level+' · '+x.seen+' observed · counter: '+(actionNames[x.focus]||abilities[x.focus]||x.focus)}
 const duelName=c=>duelProfile(c)[0]
 const duelOptions=()=>Object.entries(botProfiles).map(([id,p])=>[id,p[0]+' · '+(isBoss(id)||isHunter(id)?p[2]:p[2]+' est. Elo')])
 function duelKey(s,turn){return JSON.stringify([turn,s.rights,s.ep,s.size,(s.destroyed||[]).slice().sort(),Object.entries(s.b).sort(([a],[b])=>a.localeCompare(b))])}
@@ -113,7 +114,7 @@ function renderDuel(){
   $('duel-white').textContent=duelName('w')+' · '+duelProfile('w')[2]
   $('duel-black').textContent=duelName('b')+' · '+duelProfile('b')[2]
   const streak=game.bossActionStreak,anti=$('duel-repeat-status');if(anti){const kinds=(game.bossRecentActions||[]).slice(-4);anti.textContent='Anti-spam v3 · '+(bossNeedsMove(game,d.turn)&&isBoss(d[d.turn])?'Piece move required · ':'')+(kinds.length?kinds.map(k=>k==='move'?'Illegal move':k==='legal'?'Legal move':actionNames[k]||abilities[k]||k).join(' → '):'Ready')}
-  $('duel-count').textContent=(d.plies||0)+' moves'+['w','b'].filter(c=>isBoss(d[c])).map(c=>' · '+colorName(c)+' grace '+Math.min(BOSS_GRACE,bossInfo(game,c).turns)+'/'+BOSS_GRACE).join('')
+  $('duel-count').textContent=(d.plies||0)+' moves'+['w','b'].filter(c=>d[c]==='evolution').map(c=>' · '+colorName(c)+' '+evolutionLabel(c)).join('')+['w','b'].filter(c=>isBoss(d[c])).map(c=>' · '+colorName(c)+' grace '+Math.min(BOSS_GRACE,bossInfo(game,c).turns)+'/'+BOSS_GRACE).join('')
 }
 function scheduleDuel(){
   if(!game.duel||!duelRunning||game.result||duelBusy||waitingForRating(game.logs.at(-1)))return
@@ -131,7 +132,7 @@ async function duelStep(){
     let action=null,source=p[0],bossResult=null
     if(ch&&isEngine(id)){
       const moves=ch.moves({verbose:true})
-      if(moves.length){engine=isHunter(id)?brilliantHunterMove(ch.fen(),moves):stockfishMove(ch.fen(),p[3],moves);action=await engine.result;if(epoch!==token)return;engine=null;if(isHunter(id)&&!action){engine=stockfishMove(ch.fen(),'master',moves);action=await engine.result;if(epoch!==token)return;engine=null}}
+      if(moves.length){engine=isHunter(id)?brilliantHunterMove(ch.fen(),moves):stockfishMove(ch.fen(),id==='evolution'?['beginner','medium','hard','max'][evolutionInfo(game,actor).stage]:p[3],moves);action=await engine.result;if(epoch!==token)return;engine=null;if(isHunter(id)&&!action){engine=stockfishMove(ch.fen(),'master',moves);action=await engine.result;if(epoch!==token)return;engine=null}}
     }
     if(isBoss(id)){bossResult=bossReply(game,actor,id,catalog(),undoStack,action);action=bossResult?.action;source=p[0]+(id==='illegal'&&ch?' · Stockfish + illegal search':' · sandbox')}
     else if(!action){action=sandboxReply(sim,[],p[3]==='max'?'master':p[3],p[1]);if(isEngine(id))source+=' · sandbox fallback'}
@@ -160,13 +161,13 @@ async function duelStep(){
 function duelDialog(){
   pauseDuel();renderStatus()
   const old=game.duel
-  dialog('Bot vs Bot','<p class="dialog-copy">Choose either bot for either color. Ordinary bots use normal moves. OWNER and Illegal Stockfish cannot activate Checkmate Immunity, create God Kings, or make royal pieces immortal. All other sandbox powers remain available, but they cannot take or erase the opponent’s last king. After their seventh move they may win only with a legal checkmate, including custom-piece movement dots. Active powers cannot deliver the final mate. Flip protection: only surviving pieces switch sides; boss rewinds cannot cross a flip or restore an older match. Anti-spam v3: at most three special powers in any five completed actions; actual piece moves are required between bursts. Black Hole has a shared 20-second cooldown and eight intervening actions. Illegal moves, delete and spawn retain their three-use caps. Pause to edit the board with sandbox tools.</p><label class="form-field">White bot<select id="duel-w">'+selectOptions(duelOptions(),old?.w||'fish')+'</select></label><label class="form-field">Black bot<select id="duel-b">'+selectOptions(duelOptions(),old?.b||'fishmax')+'</select></label><label class="form-field">Move delay<select id="duel-delay">'+selectOptions([['150','Fast'],['500','Normal'],['1200','Slow'],['2500','Very slow']],String(old?.delay||500))+'</select></label><label class="check-row"><input id="duel-current" type="checkbox" '+(old?'checked':'')+'> Use current board (keep custom pieces)</label><label class="form-field">Side to move on current board<select id="duel-turn">'+selectOptions([['w','White'],['b','Black']],old?.turn||'w')+'</select></label><label class="check-row"><input id="duel-marks" type="checkbox" '+(prefs.marks?'checked':'')+'> On-board move rating badges</label><label class="check-row"><input id="duel-cinematic" type="checkbox" '+(prefs.cinematic?'checked':'')+'> Cinematic move effects</label><label class="form-field">Board theme<select id="duel-theme">'+selectOptions([['green','Classic green'],['wood','Warm wood'],['blue','Midnight blue'],['mono','Monochrome'],['editgray','Chess edits · grayscale']],prefs.theme)+'</select></label><p class="dialog-note">Brilliant Hunter can play either color and searches for engine-supported sacrifices on standard boards. Ratings are illustrative difficulty labels, not measured Elo. Stockfish variants use the bundled engine on compatible boards; other profiles use the sandbox engine.</p><div class="dialog-actions"><button class="secondary" id="duel-cancel">Cancel</button><button class="primary" id="duel-start">Start match</button></div>','duel')
+  dialog('Bot vs Bot','<p class="dialog-copy">Choose either bot for either color. Ordinary bots use normal moves. OWNER, Illegal Stockfish and EVOLUTION cannot activate Checkmate Immunity, create God Kings, or make royal pieces immortal. All other sandbox powers remain available, but they cannot take or erase the opponent’s last king. After their seventh move they may win only with a legal checkmate, including custom-piece movement dots. Active powers cannot deliver the final mate. Flip protection: only surviving pieces switch sides; boss rewinds cannot cross a flip or restore an older match. Anti-spam v3: at most three special powers in any five completed actions; actual piece moves are required between bursts. Black Hole has a shared 20-second cooldown and eight intervening actions. Illegal moves, delete and spawn retain their three-use caps. Pause to edit the board with sandbox tools.</p><label class="form-field">White bot<select id="duel-w">'+selectOptions(duelOptions(),old?.w||'fish')+'</select></label><label class="form-field">Black bot<select id="duel-b">'+selectOptions(duelOptions(),old?.b||'fishmax')+'</select></label><label class="form-field">Move delay<select id="duel-delay">'+selectOptions([['150','Fast'],['500','Normal'],['1200','Slow'],['2500','Very slow']],String(old?.delay||500))+'</select></label><label class="check-row"><input id="duel-current" type="checkbox" '+(old?'checked':'')+'> Use current board (keep custom pieces)</label><label class="form-field">Side to move on current board<select id="duel-turn">'+selectOptions([['w','White'],['b','Black']],old?.turn||'w')+'</select></label><label class="check-row"><input id="duel-marks" type="checkbox" '+(prefs.marks?'checked':'')+'> On-board move rating badges</label><label class="check-row"><input id="duel-cinematic" type="checkbox" '+(prefs.cinematic?'checked':'')+'> Cinematic move effects</label><label class="form-field">Board theme<select id="duel-theme">'+selectOptions([['green','Classic green'],['wood','Warm wood'],['blue','Midnight blue'],['mono','Monochrome'],['editgray','Chess edits · grayscale']],prefs.theme)+'</select></label><p class="dialog-note">EVOLUTION starts with weak legal moves, learns from opponent actions, unlocks powers and adds reply search over six turns. Its displayed stage is not a measured Elo. Brilliant Hunter can play either color and searches for engine-supported sacrifices on standard boards. Ratings are illustrative difficulty labels, not measured Elo. Stockfish variants use the bundled engine on compatible boards; other profiles use the sandbox engine.</p><div class="dialog-actions"><button class="secondary" id="duel-cancel">Cancel</button><button class="primary" id="duel-start">Start match</button></div>','duel')
   $('duel-cancel').onclick=()=>modal.close()
   $('duel-start').onclick=()=>{
     const keep=$('duel-current').checked,w=$('duel-w').value,b=$('duel-b').value,delay=Number($('duel-delay').value),turn=keep?$('duel-turn').value:'w'
     prefs.marks=$('duel-marks').checked;prefs.cinematic=$('duel-cinematic').checked;prefs.theme=$('duel-theme').value
     checkpoint();if(!keep)game=fresh();else beginRealityTimeline(game)
-    game.result=null;game.pending=false;game.doubleTurn=0;game.frozenTurns=0;game.checkmateImmunity=false;game.bossState={};game.bossActionStreak=null;game.bossRecentActions=[];game.bossHoleUntil=0;game.realityFlipUntil=0;game.realityFlipNeedsAction=false
+    game.result=null;game.pending=false;game.doubleTurn=0;game.frozenTurns=0;game.checkmateImmunity=false;game.bossState={};game.evolution={};game.bossActionStreak=null;game.bossRecentActions=[];game.bossHoleUntil=0;game.realityFlipUntil=0;game.realityFlipNeedsAction=false
     game.duel={w,b,delay,turn,plies:0,half:0,positions:[duelKey(game,turn)]};game.view='w';game.side='w';spawnColor='w';mode='move';resetSelection();modal.close();duelRunning=true;save();render();scheduleDuel()
   }
 }
@@ -293,6 +294,8 @@ function recordPly(before, action, actor, nextSide, text, by) {
   annotateAction(entry,before,action,actor,assessment)
 }
 function annotateAction(entry,before,action,actor,assessment=reviewAction(before,game,action,actor,game.result)){
+  const opponent=game.duel?game.duel[other(actor)]:actor===game.side?prefs.bot:null
+  observeEvolution(game,actor,action,before,assessment.legality?.kind,opponent)
   const sq=action.to||action.from||null
   if(action.hunterGrade?.key==='brilliant'&&assessment.search&&assessment.legality?.kind==='legal')assessment={grade:action.hunterGrade,legality:assessment.legality}
   Object.assign(entry,assessment,{id:crypto.randomUUID(),sq,actor,fx:{from:action.from,to:action.to,power:action.power,capture:!!before.b[action.to],promotion:!!action.promotion}})
@@ -802,10 +805,10 @@ function renderStatus() {
   document.querySelector('.bot-tag').textContent = isBoss(prefs.bot)?'UNRESTRICTED':prefs.bot === 'gpt' ? 'AI GOD' : 'BOT'
   const compatible = isEngine(prefs.bot) && orthodox(game, other(game.side))
   $('bot-detail').textContent = (compatible?'Stockfish':'Sandbox engine')+' · '+colorName(other(game.side))+(prefs.bot==='gpt'?' · Limited powers · '+(game.godCooldown>0?'Cooldown '+game.godCooldown:'Ready'):' · No powers')+(game.realityLock?' · Locked':'')+(game.frozenTurns>0?' · Frozen '+game.frozenTurns:'')
-  if(isBoss(prefs.bot)){const m=bossInfo(game,other(game.side));$('bot-detail').textContent=(prefs.bot==='illegal'?'Stockfish + illegal search':'Full sandbox boss')+' · '+(m.turns<BOSS_GRACE?'Grace '+m.turns+'/'+BOSS_GRACE:'Finish unlocked')}
+  if(isBoss(prefs.bot)){const m=bossInfo(game,other(game.side));$('bot-detail').textContent=(prefs.bot==='evolution'?evolutionLabel(other(game.side)):prefs.bot==='illegal'?'Stockfish + illegal search':'Full sandbox boss')+' · '+(m.turns<BOSS_GRACE?'Grace '+m.turns+'/'+BOSS_GRACE:'Finish unlocked')}
   $('player-side').textContent = colorName(game.side) + ' pieces'
   $('player-name-label').textContent='You';$('player-rating').hidden=false
-  if(game.duel){const top=other(game.view),bottom=game.view; $('bot-name').textContent=duelName(top)+' ('+duelProfile(top)[2]+')';$('bot-detail').textContent=colorName(top)+' · '+(isEngine(game.duel[top])?'Stockfish compatible':'Sandbox engine');$('player-name-label').textContent=duelName(bottom)+' ('+duelProfile(bottom)[2]+')';$('player-rating').hidden=true;$('player-side').textContent=colorName(bottom)+' bot';document.querySelector('.bot-tag').textContent='BOT';$('turn').textContent=game.result?resultTitle():colorName(game.duel.turn)+' to move'}
+  if(game.duel){const top=other(game.view),bottom=game.view; $('bot-name').textContent=duelName(top)+' ('+duelProfile(top)[2]+')';$('bot-detail').textContent=colorName(top)+' · '+(game.duel[top]==='evolution'?evolutionLabel(top):isEngine(game.duel[top])?'Stockfish compatible':'Sandbox engine');$('player-name-label').textContent=duelName(bottom)+' ('+duelProfile(bottom)[2]+')';$('player-rating').hidden=true;$('player-side').textContent=colorName(bottom)+' bot'+(game.duel[bottom]==='evolution'?' · '+evolutionLabel(bottom):'');document.querySelector('.bot-tag').textContent='BOT';$('turn').textContent=game.result?resultTitle():colorName(game.duel.turn)+' to move'}
   renderDuel()
   $('side-dot').classList.toggle('black', (game.duel?game.view:game.side) === 'b')
   $('undo').disabled = !undoStack.length
@@ -934,8 +937,8 @@ async function bossTurn(token){
   const id=prefs.bot,actor=other(game.side)
   if(consumeBotFreeze(game)||bossConsumeFreeze(game,actor)){game.pending=false;log('Boss turn frozen',botTitle());save();render();return}
   let suggestion=null
-  const ch=id==='illegal'?orthodox(game,actor):null
-  if(ch){const moves=ch.moves({verbose:true});if(moves.length){engine=stockfishMove(ch.fen(),'max',moves);suggestion=await engine.result;if(epoch!==token)return;engine=null}}
+  const ch=['illegal','evolution'].includes(id)?orthodox(game,actor):null
+  if(ch){const moves=ch.moves({verbose:true});if(moves.length){engine=stockfishMove(ch.fen(),id==='evolution'?['beginner','medium','hard','max'][evolutionInfo(game,actor).stage]:'max',moves);suggestion=await engine.result;if(epoch!==token)return;engine=null}}
   const before=clone(game)
   const chosen=bossReply(game,actor,id,catalog(),undoStack,suggestion)
   if(epoch!==token)return
@@ -1109,7 +1112,7 @@ function showHelp() {
     ['Board effects','Red highlights identify attacked kings. Right-click a square to mark it, or right-drag to draw an arrow. Customize board colors and animations in settings.'],
     [
       'Bot turns',
-      'Ordinary bots never use powers, even when controlling a custom piece. They must move legally and protect their king. Each opponent has a different estimated Elo and search strength. OWNER and Illegal Stockfish can move illegally and use sandbox powers except Checkmate Immunity, God King creation, and royal immortality. They must win with a legal checkmate after the grace period. GPT (AI GOD) is another exception: up to two pawn spawns, one reality flip, and limited non-capturing sidesteps with a four-turn cooldown. It cannot check a king directly using a power. All other ordinary bots have no powers.'
+      'Ordinary bots never use powers, even when controlling a custom piece. They must move legally and protect their king. Each opponent has a different estimated Elo and search strength. OWNER, Illegal Stockfish and EVOLUTION can move illegally and use sandbox powers except Checkmate Immunity, God King creation, and royal immortality. They must win with a legal checkmate after the grace period. GPT (AI GOD) is another exception: up to two pawn spawns, one reality flip, and limited non-capturing sidesteps with a four-turn cooldown. It cannot check a king directly using a power. All other ordinary bots have no powers.'
     ],
   ]
   dialog(
@@ -1129,7 +1132,7 @@ function selectOptions(values, current) {
     .join('')
 }
 function botFields(){
-  return '<label class="form-field">Opponent · estimated Elo<select id="opponent">'+selectOptions(Object.entries(botProfiles).map(([id,p])=>[id,p[0]+' · '+(isHunter(id)?'Sacrifice search':p[2]+' Elo')+(id==='gpt'?' · AI GOD':'')]),prefs.bot)+'</select></label><p class="dialog-copy">OWNER and Illegal Stockfish use sandbox powers except Checkmate Immunity, God King creation and royal immortality, with a seven-boss-move grace period and legal checkmate required. GPT / AI GOD has limited powers. Brilliant Hunter searches for sound sacrifices, then plays its best legal move if no brilliant candidate qualifies. Other bots have no powers. Ratings are fictional difficulty targets, not measured Elo.</p>'
+  return '<label class="form-field">Opponent · estimated Elo<select id="opponent">'+selectOptions(Object.entries(botProfiles).map(([id,p])=>[id,p[0]+' · '+(isHunter(id)?'Sacrifice search':p[2]+' Elo')+(id==='gpt'?' · AI GOD':'')]),prefs.bot)+'</select></label><p class="dialog-copy">OWNER, Illegal Stockfish and EVOLUTION use sandbox powers except Checkmate Immunity, God King creation and royal immortality, with a seven-boss-move grace period and legal checkmate required. EVOLUTION tracks opponent tactics during the match and evolves from Seed to Apex. GPT / AI GOD has limited powers. Brilliant Hunter searches for sound sacrifices, then plays its best legal move if no brilliant candidate qualifies. Other bots have no powers. Ratings are fictional difficulty targets, not measured Elo.</p>'
 }
 function readBotFields(){prefs.bot=$('opponent').value;prefs.level=profile()[3]}
 function settings() {
