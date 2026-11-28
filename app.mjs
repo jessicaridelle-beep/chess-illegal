@@ -1,6 +1,6 @@
 import { initMusic } from './music.mjs?v=music-31'
 import { actionHold, delayForPresentation, extendPresentation, preparedRatingMatches } from './presentation.mjs?v=tempo-28'
-import { isMate, isBrilliant, playFinale } from './finale.mjs?v=finale-27'
+import { isMate, isBrilliant, canPlayFinale, playFinale } from './finale.mjs?v=edit-32'
 import { paintEditPaths, clearEditPaths, burstEdit, editPaths, syncBadgeTint } from './editfx.mjs?v=tint-29'
 import { describeEffect, effectDuration, unlockSound, playEffectSound, renderEffects, playFinaleSound } from './effects.mjs?v=tempo-28'
 import { icon, names, abilities, powers, originals, pieceArt, pieceAbilities, movementDescription, passiveAbilities, areaAbilities, escapeHtml as esc } from './ui.mjs?v=boss-11'
@@ -122,7 +122,7 @@ function lockPresentation(duration){
   board.dataset.presenting='true'
 }
 function resetPresentation(){
-  presentationUntil=finaleUntil=0;clearTimeout(presentationTimer);clearTimeout(finaleResultTimer);board.dataset.presenting='false'
+  presentationUntil=finaleUntil=0;clearTimeout(presentationTimer);clearTimeout(finaleResultTimer);board.dataset.presenting='false';board.querySelector('.finale-layer')?.remove()
 }
 function renderDuel(){
   const d=game.duel,panel=$('duel-panel')
@@ -353,13 +353,21 @@ function gradeChip(entry){
 }
 
 function maybeFinale(entry=game.logs.at(-1)){
-  if(!entry?.id||lastFinale===entry.id||!prefs.effects||!prefs.cinematic||!prefs.editGlow)return
+  if(!entry?.id||lastFinale===entry.id)return
   const grade=displayGrade(entry),mate=isMate(game.result)
-  if(!mate&&!isBrilliant(grade))return
-  lastFinale=entry.id
+  if(!canPlayFinale(entry,grade,game.result,prefs))return
   const attack=(from,to)=>movement(game.b,from,to,boardSize(game),game.destroyed||[],true)
   const duration=playFinale(board,game,entry,grade,{size:boardSize(game),view:game.view,art:(t,c)=>pieceArt(t,c,catalog()),attack,paths:editPaths(game,entry,attack)})
-  if(duration){finaleUntil=Date.now()+duration;lockPresentation(duration);if(prefs.sound)playFinaleSound(mate)}
+  if(duration){lastFinale=entry.id;finaleUntil=Date.now()+duration;lockPresentation(duration+40);if(prefs.sound)playFinaleSound(mate)}
+}
+function previewFinale(mate=false){
+  if(duelBusy||game.pending||waitingForRating(game.logs.at(-1))||Date.now()<finaleUntil){$('preview-status').textContent='Wait for the current move to finish.';return}
+  if(globalThis.matchMedia?.('(prefers-reduced-motion: reduce)').matches){$('preview-status').textContent='Your device requests reduced motion. Cinematics are disabled by that accessibility setting.';return}
+  if(game.duel)pauseDuel()
+  const state={b:mate?{h8:{c:'b',t:'k'},f7:{c:'w',t:'k'},g7:{c:'w',t:'q'}}:{h8:{c:'b',t:'k'},e2:{c:'w',t:'k'},e8:{c:'b',t:'r'},e7:{c:'w',t:'q'},f2:{c:'w',t:'p'},g7:{c:'b',t:'p'}},result:mate?{winner:'w',reason:'Checkmate'}:null,size:8}
+  const entry={id:'preview',actor:'w',sq:mate?'g7':'e7',fx:{from:mate?'g4':'b4',to:mate?'g7':'e7'}}
+  const duration=playFinale(board,state,entry,{key:'brilliant'},{size:8,view:'w',art:(t,c)=>pieceArt(t,c,catalog()),paths:{move:mate?['g5','g6']:['c5','d6'],threat:mate?['h8']:['e8']},preview:true})
+  if(duration){finaleUntil=Date.now()+duration;lockPresentation(duration+40);if(prefs.sound)playFinaleSound(mate);board.scrollIntoView({block:'nearest'});$('preview-status').textContent='Playing a visual demo; your real position and rating are unchanged.'}
 }
 function showResultAfterFinale(){
   const result=game.result,id=game.logs.at(-1)?.id
@@ -376,7 +384,7 @@ function revealGrade(entry) {
   const k=d.key
   if (!prefs.effects || !prefs.cinematic || !['brilliant','illegalBrilliant','illegalMate','winning'].includes(k)) return
   // The chess-edit mode uses the on-square badge burst rather than a large text overlay.
-  if(prefs.editGlow)return
+  if(isBrilliant(d)||isMate(game.result)||prefs.editGlow)return
   const {title,mark}=d
   board.querySelector('.grade-cinematic')?.remove()
   const overlay = document.createElement('div')
@@ -502,7 +510,7 @@ function chime(){
   if(!entry?.fx||entry.id===lastSounded)return
   lastSounded=entry.id
   if(!prefs.sound)return
-  playEffectSound(entry.fx,{delay:prefs.effects&&entry.fx.travel?.length?Math.round(effectDuration(game.duel?.delay||500)*.72):0,check:!!threatenedKings(game,catalog()).length,win:!!game.result?.winner&&!(prefs.effects&&prefs.cinematic&&prefs.editGlow&&isMate(game.result))})
+  playEffectSound(entry.fx,{delay:prefs.effects&&entry.fx.travel?.length?Math.round(effectDuration(game.duel?.delay||500)*.72):0,check:!!threatenedKings(game,catalog()).length,win:!!game.result?.winner&&!(prefs.effects&&prefs.cinematic&&isMate(game.result)&&!globalThis.matchMedia?.('(prefers-reduced-motion: reduce)').matches)})
 }
 function syncSoundButton(){
   const b=$('sound-toggle');if(!b)return
@@ -582,6 +590,7 @@ function castHole(sq) {
   endAction(true)
 }
 function selectMode(value) {
+  if(Date.now()<finaleUntil||(prefs.effects&&prefs.cinematic&&waitingForRating(game.logs.at(-1))))return
   if(!game.duel&&bossInfo(game,game.side).lock&&value!=='move'){notice='Reality lock · your special tools are temporarily disabled.';renderStatus();return}
   if(game.duel){pauseDuel();if(['double','freeze','lock','immunity','flip'].includes(value)){notice='This turn power is only available in human vs bot mode.';renderStatus();return}}
   if (value === 'rewind') return rewindDialog()
@@ -621,6 +630,7 @@ function chooseSpawn(t) {
   if (modal.open) modal.close()
 }
 function actOn(sq) {
+  if(Date.now()<finaleUntil||(prefs.effects&&prefs.cinematic&&waitingForRating(game.logs.at(-1)))){notice='Finishing move review or cinematic…';renderStatus();return}
   if(game.duel&&(duelRunning||duelBusy)){pauseDuel();renderStatus()}
   if (game.result) return showResult()
   if(isDestroyed(game,sq)){notice='This square has been destroyed. Undo to restore it.';renderStatus();return}
@@ -770,9 +780,11 @@ function renderBoard() {
         '</button>'
     }
   const scene=board.querySelector('.finale-layer')
-  board.innerHTML = html
-  if(scene?.dataset.action===entry?.id&&Date.now()<finaleUntil)board.append(scene)
-  else if(scene)finaleUntil=0
+  if(scene&&(scene.dataset.action===entry?.id||scene.dataset.action==='preview')&&Date.now()<finaleUntil){
+    // Keep the live animation attached so its CSS timeline is not restarted.
+    for(const child of [...board.children])if(child!==scene)child.remove()
+    board.insertAdjacentHTML('afterbegin',html)
+  }else{board.innerHTML=html;if(scene)finaleUntil=0}
   board.dataset.mode = mode
   paintDestinations()
   if(animate){lockPresentation(actionHold(entry.fx,{effects:prefs.effects,reduced:!!globalThis.matchMedia?.('(prefers-reduced-motion: reduce)').matches}));renderEffects(board,entry.fx,{size,view:game.view,art:(t,c)=>pieceArt(t,c,catalog()),delay:game.duel?.delay||500})}
@@ -1430,7 +1442,7 @@ board.onclick = (e) => {
 board.ondragstart = (e) => {
   const b = e.target.closest('[data-sq]')
   if(game.duel&&(duelRunning||duelBusy))pauseDuel()
-  if (game.result || !b || !['move','control'].includes(mode) || !game.b[b.dataset.sq] || (mode==='control' && game.b[b.dataset.sq].c===game.side)) {
+  if (Date.now()<finaleUntil||(prefs.effects&&prefs.cinematic&&waitingForRating(game.logs.at(-1)))||game.result || !b || !['move','control'].includes(mode) || !game.b[b.dataset.sq] || (mode==='control' && game.b[b.dataset.sq].c===game.side)) {
     e.preventDefault()
     return
   }
@@ -1569,6 +1581,8 @@ document.onkeydown = (e) => {
 }
 decorate()
 initMusic($('music-panel'))
+$('preview-brilliant').onclick=()=>previewFinale(false)
+$('preview-mate').onclick=()=>previewFinale(true)
 render()
 setInterval(updateFlipCooldown,250)
 reviewQueue()
