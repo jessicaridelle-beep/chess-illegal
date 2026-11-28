@@ -22,7 +22,7 @@ import {
   boardSize, boardFiles, boardRanks, allSquares, expandBoard, blackHole, xy, legalBotTrial, sandboxNoMove, clonePiece, toggleImmortality, freezeBot, toggleRealityLock, consumeBotFreeze, godTrial, godPower,
 } from './game.mjs?v=boss-11'
 import { stockfishMove, compareMove } from './engine.mjs?v=boss-11'
-import { grades, reviewAction, engineGrade, displayGrade, latestBoardGrade, gradeSquares } from './review.mjs?v=edits-13'
+import { grades, reviewAction, engineGrade, displayGrade, latestBoardGrade, gradeSquares } from './review.mjs?v=illegal-marks-14'
 const $ = (id) => document.getElementById(id),
   modal = $('modal'),
   board = $('board')
@@ -278,6 +278,9 @@ function annotateAction(entry,before,action,actor,assessment=reviewAction(before
   if(game.duel)for(const old of game.logs)if(old!==entry&&old.search)delete old.search
   if(assessment.search)reviewQueue()
 }
+function markEdit(text,action,before=undoStack.at(-1),actor=game.side){
+  const entry=log(text);if(before)annotateAction(entry,before,action,actor,reviewAction(before,game,action,actor,null));return entry
+}
 function gradeChip(entry){
   const d=displayGrade(entry)
   if(!d)return ''
@@ -289,7 +292,7 @@ function revealGrade(entry) {
   if (!entry?.id || !entry.grade || entry.search || revealed.has(entry.id)) return
   revealed.add(entry.id)
   const d=displayGrade(entry),k=d.key
-  if (!prefs.effects || !prefs.cinematic || !['illegalBrilliant','winning'].includes(k)) return
+  if (!prefs.effects || !prefs.cinematic || !['illegalBrilliant','illegalMate','winning'].includes(k)) return
   const {title,mark}=d
   board.querySelector('.grade-cinematic')?.remove()
   const overlay = document.createElement('div')
@@ -313,7 +316,7 @@ function revealGrade(entry) {
 function gradeGlyph(d){
   // Vector symbols stay crisp and centered at any board size.
   const svg=(path)=>'<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">'+path+'</svg>'
-  if(d.key==='best')return svg('<path fill="currentColor" d="m12 1.8 3.2 6.6 7.3 1-5.3 5.2 1.3 7.3-6.5-3.5-6.5 3.5 1.3-7.3L1.5 9.4l7.3-1z"/>')
+  if(d.key==='best'||d.key==='illegalBest')return svg('<path fill="currentColor" d="m12 1.8 3.2 6.6 7.3 1-5.3 5.2 1.3 7.3-6.5-3.5-6.5 3.5 1.3-7.3L1.5 9.4l7.3-1z"/>')
   if(d.key==='book')return svg('<path fill="currentColor" d="M2 4c3-1 6-.6 9 1.4v15c-3-2-6-2.4-9-1.4zm20 0c-3-1-6-.6-9 1.4v15c3-2 6-2.4 9-1.4z"/>')
   if(d.key==='miss')return svg('<path d="m6 6 12 12M18 6 6 18" fill="none" stroke="currentColor" stroke-width="3.5" stroke-linecap="round"/>')
   if(d.key==='good'||d.key==='excellent')return svg('<path d="m4 12 5 5L20 6" fill="none" stroke="currentColor" stroke-width="3.5" stroke-linecap="round" stroke-linejoin="round"/>')
@@ -326,7 +329,7 @@ function paintReview(){
   if(last){
     box.innerHTML=gradeChip(last)+'<div><strong>'+esc(last.by+' · '+last.text)+'</strong><p>'+esc(last.search?'Stockfish is reviewing the move.':last.grade.detail)+'</p></div><small>'+esc(last.search?'Pending engine review':last.grade.source+(Number.isFinite(last.grade.accuracy)?' · '+last.grade.accuracy.toFixed(1)+'% expected-score retention':''))+'</small>'
   }
-  board.querySelectorAll('.grade-pin').forEach(pin=>pin.remove())
+  board.querySelectorAll('.grade-pin,.grade-global').forEach(pin=>pin.remove())
   board.querySelectorAll('.rated-square,.rated-origin').forEach(s=>{s.classList.remove('rated-square','rated-origin','rating-edge-top','rating-edge-right');for(const k of Object.keys(grades))s.classList.remove('grade-'+k)})
   if(!prefs.marks)return
   const marked=latestBoardGrade(game.logs)
@@ -336,6 +339,7 @@ function paintReview(){
   const pulseKey=marked.id+':'+d.key+':'+d.pending
   const pulse=prefs.effects&&prefs.cinematic&&lastGradePulse!==pulseKey
   lastGradePulse=pulseKey
+  if(!marked.sq&&marked.fx.power){board.insertAdjacentHTML('beforeend','<div class="grade-global grade-'+d.key+(pulse?' grade-global-pulse':'')+'"><b>'+gradeGlyph(d)+'</b><span>'+esc(d.title)+'</span></div>');return}
   for(const target of gradeSquares(marked)){
     const square=board.querySelector('[data-sq="'+target.sq+'"]')
     if(!square)continue
@@ -458,20 +462,20 @@ function convertAt(sq) {
   endAction(true)
 }
 function activateDouble() {
-  checkpoint();game.doubleTurn=(game.doubleTurn||0)+1;log('Extra turn added · '+game.doubleTurn+' banked')
+  checkpoint();game.doubleTurn=(game.doubleTurn||0)+1;markEdit('Extra turn added · '+game.doubleTurn+' banked',{power:'double'})
   mode='move';endAction();notice='Double turn armed. Make your first move.';renderStatus()
 }
 function rewindDialog() {
   if(!undoStack.length){notice='Nothing to reverse yet.';renderStatus();return}
   dialog('Time reversal','<p class="dialog-copy">Restore an earlier board, including captured pieces and board size. Your custom library is kept. The reversal itself can be undone.</p><div class="promos">'+Array.from({length:Math.min(5,undoStack.length)},(_,i)=>'<button data-rewind="'+(i+1)+'">'+(i+1)+' action'+(i?'s':'')+' back</button>').join('')+'</div>','rewind')
   modal.querySelectorAll('[data-rewind]').forEach(b=>b.onclick=()=>{
-    const old=clone(undoStack.at(-Number(b.dataset.rewind)));checkpoint();game=old;beginRealityTimeline(game);game.pending=false;game.doubleTurn=0;spawnColor=game.side;mode='move';log('Time reversal · restored '+b.dataset.rewind+' action(s)');modal.close();endAction();notice='Timeline restored.';renderStatus();reviewQueue()
+    const prior=clone(game),old=clone(undoStack.at(-Number(b.dataset.rewind)));checkpoint();game=old;beginRealityTimeline(game);game.pending=false;game.doubleTurn=0;spawnColor=game.side;mode='move';markEdit('Time reversal · restored '+b.dataset.rewind+' action(s)',{power:'rewind'},prior);modal.close();endAction();notice='Timeline restored.';renderStatus();reviewQueue()
   })
 }
 function expandDialog() {
   const size=boardSize(game)
   dialog('Board expansion','<p class="dialog-copy">Keep every piece on its existing square. Add empty files and ranks to the right and above. Expanded boards use the sandbox bot, not standard Stockfish.</p><div class="promos">'+[12,16].filter(n=>n>size).map(n=>'<button data-expand="'+n+'">'+n+' × '+n+'</button>').join('')+(size===16?'<p>Maximum size reached. Undo to shrink the board.</p>':'')+'</div>','expand')
-  modal.querySelectorAll('[data-expand]').forEach(b=>b.onclick=()=>{checkpoint();expandBoard(game,Number(b.dataset.expand));mode='move';log('Board expanded · '+b.dataset.expand+' × '+b.dataset.expand);modal.close();endAction()})
+  modal.querySelectorAll('[data-expand]').forEach(b=>b.onclick=()=>{checkpoint();expandBoard(game,Number(b.dataset.expand));mode='move';markEdit('Board expanded · '+b.dataset.expand+' × '+b.dataset.expand,{power:'expand'});modal.close();endAction()})
 }
 function castHole(sq) {
   checkpoint()
@@ -483,13 +487,13 @@ function selectMode(value) {
   if(!game.duel&&bossInfo(game,game.side).lock&&value!=='move'){notice='Reality lock · your special tools are temporarily disabled.';renderStatus();return}
   if(game.duel){pauseDuel();if(['double','freeze','lock','immunity','flip'].includes(value)){notice='This turn power is only available in human vs bot mode.';renderStatus();return}}
   if (value === 'rewind') return rewindDialog()
-  if(value==='immunity'&&(!game.result||game.result.winner===other(game.side)&&['Checkmate','Sandbox checkmate'].includes(game.result.reason))){checkpoint();const on=toggleCheckmateImmunity(game);if(on&&game.result)game.result=null;mode='move';log('Checkmate immunity · '+(on?'enabled':'disabled'));endAction();return}
+  if(value==='immunity'&&(!game.result||game.result.winner===other(game.side)&&['Checkmate','Sandbox checkmate'].includes(game.result.reason))){checkpoint();const on=toggleCheckmateImmunity(game);if(on&&game.result)game.result=null;mode='move';markEdit('Checkmate immunity · '+(on?'enabled':'disabled'),{power:'immunity'});endAction();return}
   if (game.result) return showResult()
   if (value === 'double') return activateDouble()
   if(value==='freeze'||value==='lock'){
     checkpoint();mode='move'
     const detail=value==='freeze'?'Time freeze · '+freezeBot(game)+' bot turns frozen': 'Reality lock · '+(toggleRealityLock(game)?'active':'disabled')
-    const entry=log(detail);entry.id=crypto.randomUUID();entry.fx={power:value};endAction();notice=detail;renderStatus();return
+    markEdit(detail,{power:value});endAction();notice=detail;renderStatus();return
   }
   if (value === 'expand') return expandDialog()
   if (value === 'flip') {
@@ -498,7 +502,7 @@ function selectMode(value) {
     game.side = other(game.side)
     game.view = game.side
     spawnColor = game.side
-    log('Reality flip · now ' + colorName(game.side))
+    markEdit('Reality flip · now ' + colorName(game.side),{power:'flip'},undoStack.at(-1),other(game.side))
     mode = 'move'
     endAction()
     return
@@ -526,7 +530,7 @@ function actOn(sq) {
     if(!selected){if(game.b[sq]?.c===game.side){selected=sq;notice='Choose a second friendly piece.';render()}return}
     if(selected===sq){resetSelection();render();return}
     const from=selected,trial=clone(game);if(!mergePieces(trial,from,sq,catalog())){notice='Choose another friendly piece.';renderStatus();return}
-    checkpoint();Object.assign(game,{b:trial.b,rights:trial.rights,ep:trial.ep,last:trial.last});const entry=log('Reality merge · '+from+' + '+sq);entry.id=crypto.randomUUID();entry.fx={power:'merge',from,to:sq};endAction();return
+    checkpoint();Object.assign(game,{b:trial.b,rights:trial.rights,ep:trial.ep,last:trial.last});markEdit('Reality merge · '+from+' + '+sq,{power:'merge',from,to:sq});endAction();return
   }
   if(mode==='destroy'){
     if(isDivine(game.b[sq])){notice='The God King cannot be destroyed.';renderStatus();return}
@@ -539,19 +543,19 @@ function actOn(sq) {
   }
   if(mode==='immortal'){
     if(!game.b[sq]){notice='Choose any piece, even a king.';renderStatus();return}
-    checkpoint();toggleImmortality(game,sq);const entry=log('Immortality · '+label(game.b[sq].t)+' '+(game.b[sq].immortal?'protected':'unprotected')+' on '+sq);entry.id=crypto.randomUUID();entry.fx={power:'immortal',to:sq};endAction();return
+    checkpoint();toggleImmortality(game,sq);markEdit('Immortality · '+label(game.b[sq].t)+' '+(game.b[sq].immortal?'protected':'unprotected')+' on '+sq,{power:'immortal',to:sq});endAction();return
   }
   if(mode==='clone'){
     if(!selected){if(game.b[sq]){selected=sq;notice='Choose any other square to clone the piece.';render()}return}
     if(selected===sq){resetSelection();render();return}
-    const from=selected;checkpoint();clonePiece(game,from,sq);const entry=log('Cloning · '+label(game.b[sq].t)+' '+from+' → '+sq);entry.id=crypto.randomUUID();entry.fx={power:'clone',from,to:sq};endAction();return
+    const from=selected;checkpoint();clonePiece(game,from,sq);markEdit('Cloning · '+label(game.b[sq].t)+' '+from+' → '+sq,{power:'clone',from,to:sq});endAction();return
   }
   if (mode === 'hole') return castHole(sq)
   if (mode === 'convert') return convertAt(sq)
   if (mode === 'spawn') {
     checkpoint()
     edit(game, sq, { c: ['godking','overlord','devourer','fusion'].includes(spawnType)?game.side:spawnColor, t: spawnType, ...(spawnType==='godking'?{immortal:true}: {}) })
-    log('Spawn ' + colorName(spawnColor).toLowerCase() + ' ' + label(spawnType) + ' · ' + sq)
+    markEdit('Spawn ' + colorName(game.b[sq].c).toLowerCase() + ' ' + label(spawnType) + ' · ' + sq,{power:'spawn',to:sq})
     endAction()
     return
   }
@@ -564,7 +568,7 @@ function actOn(sq) {
     const name = label(game.b[sq].t)
     checkpoint()
     edit(game, sq, null)
-    log('Delete ' + name + ' · ' + sq)
+    markEdit('Delete ' + name + ' · ' + sq,{power:'delete',to:sq})
     endAction()
     return
   }
@@ -879,7 +883,7 @@ async function botMove(token) {
         : label(p.t)+' '+from+(q?' × ':' → ')+to+(promotion?' = '+label(promotion):'')
       if(power==='flip'){
         spawnColor=game.side;annotations=[]
-        Object.assign(log('Reality flip · you now play '+colorName(game.side),by),{id:crypto.randomUUID(),fx:{power:'flip'}})
+        annotateAction(log('Reality flip · you now play '+colorName(game.side),by),before,{power:'flip'},c)
       }else recordPly(before,action,c,extra?c:game.side,description,by)
     }else{pass='Bot action rejected';log(pass,by)}
   }else{log(pass,by);if(!followup&&game.botCooldown>0)game.botCooldown--}
@@ -1051,7 +1055,7 @@ function showHelp() {
     ],
     [
       'Move review',
-      'Stockfish compares ordinary moves with its best line. A brilliant move offers material while keeping a strong evaluation. Freeform moves and powers get a sandbox estimate based on material and immediate threats. Sandbox estimates are labeled separately from verified engine grades. Brilliant engine grades require an engine-supported sacrifice. Purple illegal-brilliant marks are labeled sandbox estimates. A small built-in opening book identifies common known opening moves. Open Move history for both sides’ grades.',
+      'Stockfish compares ordinary moves with its best line. A brilliant move offers material while keeping a strong evaluation. Freeform moves and powers get a sandbox estimate based on material and immediate threats. Sandbox estimates are labeled separately from verified engine grades. Brilliant engine grades require an engine-supported sacrifice. Illegal tactical ratings are sandbox estimates. Special powers have unique event marks for summoning, time, reality, void, fusion, protection and more. A small built-in opening book identifies common known opening moves. Open Move history for both sides’ grades.',
     ],
     [
       'Move anywhere',
@@ -1081,7 +1085,7 @@ function showHelp() {
     'How to play',
     '<div class="rules-list">' +
       items.map((v) => '<article><h3>' + v[0] + '</h3><p>' + v[1] + '</p></article>').join('') +
-      '</div><h3 class="section-sub">Keyboard</h3><p class="dialog-note">M move · S spawn · D delete · F reality flip · C control · V conversion · Esc cancel · Ctrl/⌘ Z undo</p><a class="credit-link" href="credits.html" target="_blank" rel="noopener">Game credits ↗</a>',
+      '</div><h3 class="section-sub">Illegal mark guide</h3><div class="illegal-legend">'+Object.keys(grades).filter(k=>k.startsWith('illegal')||['reality','time','void','summon','fusion','divine','conversion','destruction','chaos','customPower'].includes(k)).map(k=>'<div class="grade-chip grade-'+k+'"><i>'+esc(grades[k][1])+'</i>'+esc(grades[k][0])+'</div>').join('')+'</div><h3 class="section-sub">Keyboard</h3><p class="dialog-note">M move · S spawn · D delete · F reality flip · C control · V conversion · Esc cancel · Ctrl/⌘ Z undo</p><a class="credit-link" href="credits.html" target="_blank" rel="noopener">Game credits ↗</a>',
     'help',
   )
 }
@@ -1354,7 +1358,7 @@ $('power-area').onclick = (e) => {
       (t) => {
         checkpoint()
         edit(game, sq, { c: ['godking','overlord','devourer','fusion'].includes(t)?game.side:p.c, t, ...(t==='godking'?{immortal:true}:{}) })
-        log('Transform ' + sq + ' → ' + label(t))
+        markEdit('Transform ' + sq + ' → ' + label(t),{power:'transform',to:sq})
         endAction()
       },
     )

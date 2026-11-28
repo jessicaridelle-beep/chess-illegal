@@ -11,6 +11,22 @@ export const grades = {
   brilliant: ['Brilliant', '!!'],
   great: ['Great', '!'],
   illegalBrilliant: ['Illegal brilliant', '!!'],
+  illegalGreat: ["Illegal great","!"],
+  illegalBest: ["Illegal capture","★"],
+  illegalMove: ["Illegal move","✦"],
+  illegalMistake: ["Illegal mistake","?!"],
+  illegalBlunder: ["Illegal blunder","??"],
+  illegalMate: ["Illegal victory","♛"],
+  reality: ["Reality break","⇄"],
+  time: ["Time distortion","↶"],
+  void: ["Void strike","◉"],
+  summon: ["Summoning","+"],
+  fusion: ["Fusion","◇"],
+  divine: ["Divine protection","♜"],
+  conversion: ["Conversion","⇆"],
+  destruction: ["Board destruction","×"],
+  chaos: ["Chaos strike","✸"],
+  customPower: ["Custom power","✧"],
   miss: ['Miss', '×'],
   sandbox: ['Sandbox move', '✦'],
   best: ['Best', '★'],
@@ -204,18 +220,32 @@ export function displayGrade(entry){
   if(!entry?.grade)return null
   const key=entry.grade.visualKey||entry.grade.key
   const [title,mark]=grades[key]||grades.sandbox
-  return {key,title,mark,estimated:entry.grade.key==='sandbox',pending:!!entry.search}
+  return {key,title,mark,estimated:entry.grade.key==='sandbox'&&!entry.grade.powerCategory,pending:!!entry.search,power:entry.grade.powerCategory||null}
 }
+export const illegalPowerGrades={"flip":"reality","expand":"reality","lock":"reality","rewind":"time","freeze":"time","double":"time","hole":"void","spawn":"summon","clone":"summon","echo":"summon","mirror":"summon","replicate":"summon","merge":"fusion","transform":"fusion","immortal":"divine","immunity":"divine","decree":"divine","blessing":"divine","convert":"conversion","dominion":"conversion","radiance":"conversion","destroy":"destruction","delete":"destruction","nova":"chaos","shockwave":"chaos","beam":"chaos","diagonal":"chaos","comet":"chaos","consume":"chaos","phase":"illegalMove","exchange":"illegalMove","leap":"illegalMove","control":"illegalMove","sidestep":"illegalMove"}
 export function reviewAction(before,after,action,actor,outcome){
   const result=reviewMove(before,after,action,actor,outcome)
-  if(result.grade?.key==='sandbox'&&!result.search){
-    const gained=points(after.b,actor)-points(before.b,actor)
-    if(gained>=9)result.grade.visualKey='illegalBrilliant'
+  if(result.search||result.grade.key==='book')return result
+  const gained=points(after.b,actor)-points(before.b,actor)
+  if(action.power){
+    const category=illegalPowerGrades[action.power]||'customPower'
+    if(outcome?.winner===actor)result.grade.visualKey='illegalMate'
+    else if(outcome?.winner===other(actor))result.grade.visualKey='illegalBlunder'
+    else if(outcome?.winner===null)return result
+    else result.grade.visualKey=category
+    result.grade.powerCategory=category
+    result.grade.source=outcome?'Game result · sandbox power':'Sandbox power · '+grades[category][0]
+    return result
+  }
+  if(result.grade.key==='sandbox'){
+    const quick=result.grade.visualKey
+    result.grade.visualKey=quick==='blunder'?'illegalBlunder':quick==='mistake'?'illegalMistake':gained>=9||quick==='illegalBrilliant'?'illegalBrilliant':gained>=5?'illegalBest':gained>=2?'illegalGreat':'illegalMove'
+    result.grade.source='Sandbox estimate · '+grades[result.grade.visualKey][0]
   }
   return result
 }
 export function latestBoardGrade(logs){
   const entry=logs.at(-1)
-  if(!entry?.grade||!entry.sq||!entry.fx)return null
+  if(!entry?.grade||!entry.fx||(!entry.sq&&!entry.fx.power))return null
   return entry
 }
