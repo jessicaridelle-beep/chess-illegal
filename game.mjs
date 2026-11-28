@@ -1,5 +1,5 @@
 import { Chess, validateFen } from './vendor/chess.mjs'
-import { names, pieceAbilities, originals } from './ui.mjs?v=boss-10'
+import { names, pieceAbilities, originals } from './ui.mjs?v=boss-11'
 export const files = 'abcdefgh'
 export const ranks = [8, 7, 6, 5, 4, 3, 2, 1]
 export const other = (c) => (c === 'w' ? 'b' : 'w')
@@ -11,8 +11,22 @@ export const boardRanks = s => Array.from({length:boardSize(s)},(_,i)=>boardSize
 export const REALITY_FLIP_COOLDOWN=10000
 export const realityFlipRemaining=(s,now=Date.now())=>Math.max(0,(s.realityFlipUntil||0)-now)
 export const canBossFlip=(s,now=Date.now())=>!realityFlipRemaining(s,now)&&!s.realityFlipNeedsAction
+// A flip starts a new timeline. Bot rewinds may not cross a flip or a match boundary.
+export function beginRealityTimeline(s){
+  s.realityTimeline=Date.now().toString(36)+'-'+Math.random().toString(36).slice(2)+'-'+Math.random().toString(36).slice(2)
+  return s
+}
+export function canBossRewind(s,prev){
+  return !!(s.realityTimeline&&prev?.b&&prev.realityTimeline===s.realityTimeline)
+}
+export function flipCurrentBoard(s){
+  // Never read a saved position here: keep only the pieces and squares present now.
+  s.b=Object.fromEntries(Object.entries(s.b).filter(([sq])=>!isDestroyed(s,sq)).map(([sq,p])=>[sq,{...p,c:other(p.c)}]))
+  s.rights='';s.ep='-';s.last=Object.keys(s.b)
+  return s
+}
 export function markRealityAction(s,kind,now=Date.now()){
-  if(kind==='flip'){s.realityFlipUntil=now+REALITY_FLIP_COOLDOWN;s.realityFlipNeedsAction=true}
+  if(kind==='flip'){beginRealityTimeline(s);s.realityFlipUntil=now+REALITY_FLIP_COOLDOWN;s.realityFlipNeedsAction=true}
   else s.realityFlipNeedsAction=false
   return s
 }
@@ -63,7 +77,7 @@ export function fresh() {
       b[files[x] + pawn] = { c, t: 'p' }
       b[files[x] + back] = { c, t: 'rnbqkbnr'[x] }
     }
-  return { b, size:8, doubleTurn:0, frozenTurns:0, realityLock:false, side: 'w', view: 'w', rights: 'KQkq', ep: '-', last: [], logs: [], pending: false }
+  return beginRealityTimeline({ b, size:8, doubleTurn:0, frozenTurns:0, realityLock:false, side: 'w', view: 'w', rights: 'KQkq', ep: '-', last: [], logs: [], pending: false })
 }
 export function fen(s, turn) {
   if (boardSize(s)!==8 || (s.destroyed||[]).length || Object.values(s.b).some(p=>p.immortal)) return null
@@ -582,8 +596,8 @@ export function bossTrial(s,a,c,id,catalog=originals,history=[]){
   else if(kind==='destroy'){if(!destroySquare(n,a.to))return null}
   else if(kind==='hole'){if(!blackHole(n,a.to))return null}
   else if(kind==='expand'){if(!expandBoard(n,a.size))return null}
-  else if(kind==='flip'){if(!canBossFlip(s))return null;for(const sq of Object.keys(n.b))n.b[sq]={...n.b[sq],c:other(n.b[sq].c)};n.rights='';n.ep='-';n.last=Object.keys(n.b)}
-  else if(kind==='rewind'){const prev=history.at(-a.steps);if(!prev?.b)return null;for(const k of ['b','size','rights','ep','destroyed'])n[k]=copy(prev[k]??(k==='destroyed'?[]:k==='size'?8:k==='ep'?'-':k==='rights'?'':{}));n.last=Object.keys(n.b)}
+  else if(kind==='flip'){if(!canBossFlip(s))return null;flipCurrentBoard(n)}
+  else if(kind==='rewind'){if(!Number.isInteger(a.steps)||a.steps<1||a.steps>5)return null;const prev=history.at(-a.steps);if(!canBossRewind(s,prev))return null;for(const k of ['b','size','rights','ep','destroyed'])n[k]=copy(prev[k]??(k==='destroyed'?[]:k==='size'?8:k==='ep'?'-':k==='rights'?'':{}));n.last=Object.keys(n.b)}
   else if(kind==='double'){if(m.extra||m.last==='double'||m.last==='freeze')return null;bossMeta(n,c,{extra:true});n.last=[]}
   else if(kind==='freeze'){if(m.extra||m.last==='double'||m.last==='freeze'||bossInfo(n,enemy).freeze)return null;bossMeta(n,enemy,{freeze:1});n.last=[]}
   else if(kind==='lock'){if(bossInfo(n,enemy).lock)return null;bossMeta(n,enemy,{lock:2});n.last=[]}
@@ -639,7 +653,7 @@ export function bossReply(s,c,id,catalog=originals,history=[],suggested=null){
     }
     if(boardSize(s)<16)add({power:'expand',size:boardSize(s)===8?12:16},2)
     if(canBossFlip(s))add({power:'flip'},Math.max(0,-initial)*1.2)
-    for(let steps=1;steps<=Math.min(5,history.length);steps++)add({power:'rewind',steps},Math.max(0,scoreBoard(history.at(-steps).b)-initial))
+    for(let steps=1;steps<=Math.min(5,history.length);steps++){const prev=history.at(-steps);if(canBossRewind(s,prev))add({power:'rewind',steps},Math.max(0,scoreBoard(prev.b)-initial))}
     for(const kind of ['double','freeze','lock','immunity'])add({power:kind},kind==='immunity'?4:kind==='lock'?2:3)
   }
   a.sort((x,y)=>y.score-x.score)

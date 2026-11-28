@@ -1,6 +1,7 @@
-import { icon, names, abilities, powers, originals, pieceArt, pieceAbilities, movementDescription, passiveAbilities, areaAbilities, escapeHtml as esc } from './ui.mjs?v=boss-10'
+import { icon, names, abilities, powers, originals, pieceArt, pieceAbilities, movementDescription, passiveAbilities, areaAbilities, escapeHtml as esc } from './ui.mjs?v=boss-11'
 import {
   fresh,
+  beginRealityTimeline,
   realityFlipRemaining, markRealityAction, canBossFlip, bossActionKind, bossRepeatLimit, markBossStreak, canBossRepeat, bossFamily, blackHoleRemaining, blackHoleActionGap, bossNeedsMove,
   isBoss, BOSS_GRACE, bossInfo, bossReply, bossOutcome, bossConsumeFreeze, bossConsumeLock, bossHasRoyal,
   isDivine, isDestroyed, mergePieces, destroySquare, toggleCheckmateImmunity,
@@ -19,8 +20,8 @@ import {
   threatenedKings,
   convertPiece,
   boardSize, boardFiles, boardRanks, allSquares, expandBoard, blackHole, xy, legalBotTrial, sandboxNoMove, clonePiece, toggleImmortality, freezeBot, toggleRealityLock, consumeBotFreeze, godTrial, godPower,
-} from './game.mjs?v=boss-10'
-import { stockfishMove, compareMove } from './engine.mjs?v=boss-10'
+} from './game.mjs?v=boss-11'
+import { stockfishMove, compareMove } from './engine.mjs?v=boss-11'
 import { grades, reviewMove, engineGrade } from './review.mjs'
 const $ = (id) => document.getElementById(id),
   modal = $('modal'),
@@ -34,6 +35,8 @@ let game = saved.game?.b ? saved.game : fresh(),
   custom = saved.custom || [],
   undoStack = saved.undo || [],
   redoStack = saved.redo || []
+// Older saves have no reliable flip boundary. Start a new one without altering the board.
+if(!game.realityTimeline)beginRealityTimeline(game)
 let prefs = {
   bot: 'fish',
   level: 'balanced',
@@ -139,8 +142,7 @@ async function duelStep(){
     undoStack.push(before);if(undoStack.length>60)undoStack.shift();redoStack=[]
     const next=isBoss(id)&&action.power==='double'?actor:other(actor)
     Object.assign(game,{b:safe.b,rights:safe.rights,ep:safe.ep,last:safe.last,size:safe.size,destroyed:safe.destroyed,bossState:safe.bossState})
-    if(isBoss(id)){game.bossActionStreak=safe.bossActionStreak;game.bossRecentActions=safe.bossRecentActions;game.bossHoleUntil=safe.bossHoleUntil}else markBossStreak(game,'legal')
-    markRealityAction(game,action.power||'move')
+    if(isBoss(id)){game.bossActionStreak=safe.bossActionStreak;game.bossRecentActions=safe.bossRecentActions;game.bossHoleUntil=safe.bossHoleUntil;game.realityTimeline=safe.realityTimeline;game.realityFlipUntil=safe.realityFlipUntil;game.realityFlipNeedsAction=safe.realityFlipNeedsAction}else{markBossStreak(game,'legal');markRealityAction(game,'move')}
     if(!isBoss(id))bossConsumeLock(game,actor)
     d.turn=next;d.plies=(d.plies||0)+1
     game.result=duelAfter(game,next,actor,action,before)
@@ -154,11 +156,11 @@ async function duelStep(){
 function duelDialog(){
   pauseDuel();renderStatus()
   const old=game.duel
-  dialog('Bot vs Bot','<p class="dialog-copy">Choose either bot for either color. Ordinary bots use normal moves. OWNER and Illegal Stockfish can use every sandbox power and cannot finish a game before their seventh move. Anti-spam v3: at most three special powers in any five completed actions; actual piece moves are required between bursts. Black Hole has a shared 20-second cooldown and eight intervening actions. Illegal moves, delete and spawn retain their three-use caps. Pause to edit the board with sandbox tools.</p><label class="form-field">White bot<select id="duel-w">'+selectOptions(duelOptions(),old?.w||'fish')+'</select></label><label class="form-field">Black bot<select id="duel-b">'+selectOptions(duelOptions(),old?.b||'fishmax')+'</select></label><label class="form-field">Move delay<select id="duel-delay">'+selectOptions([['150','Fast'],['500','Normal'],['1200','Slow'],['2500','Very slow']],String(old?.delay||500))+'</select></label><label class="check-row"><input id="duel-current" type="checkbox" '+(old?'checked':'')+'> Use current board (keep custom pieces)</label><label class="form-field">Side to move on current board<select id="duel-turn">'+selectOptions([['w','White'],['b','Black']],old?.turn||'w')+'</select></label><p class="dialog-note">Ratings are illustrative difficulty labels, not measured Elo. Stockfish variants use the bundled engine on compatible boards; other profiles use the sandbox engine.</p><div class="dialog-actions"><button class="secondary" id="duel-cancel">Cancel</button><button class="primary" id="duel-start">Start match</button></div>','duel')
+  dialog('Bot vs Bot','<p class="dialog-copy">Choose either bot for either color. Ordinary bots use normal moves. OWNER and Illegal Stockfish can use every sandbox power and cannot finish a game before their seventh move. Flip protection: only surviving pieces switch sides; boss rewinds cannot cross a flip or restore an older match. Anti-spam v3: at most three special powers in any five completed actions; actual piece moves are required between bursts. Black Hole has a shared 20-second cooldown and eight intervening actions. Illegal moves, delete and spawn retain their three-use caps. Pause to edit the board with sandbox tools.</p><label class="form-field">White bot<select id="duel-w">'+selectOptions(duelOptions(),old?.w||'fish')+'</select></label><label class="form-field">Black bot<select id="duel-b">'+selectOptions(duelOptions(),old?.b||'fishmax')+'</select></label><label class="form-field">Move delay<select id="duel-delay">'+selectOptions([['150','Fast'],['500','Normal'],['1200','Slow'],['2500','Very slow']],String(old?.delay||500))+'</select></label><label class="check-row"><input id="duel-current" type="checkbox" '+(old?'checked':'')+'> Use current board (keep custom pieces)</label><label class="form-field">Side to move on current board<select id="duel-turn">'+selectOptions([['w','White'],['b','Black']],old?.turn||'w')+'</select></label><p class="dialog-note">Ratings are illustrative difficulty labels, not measured Elo. Stockfish variants use the bundled engine on compatible boards; other profiles use the sandbox engine.</p><div class="dialog-actions"><button class="secondary" id="duel-cancel">Cancel</button><button class="primary" id="duel-start">Start match</button></div>','duel')
   $('duel-cancel').onclick=()=>modal.close()
   $('duel-start').onclick=()=>{
     const keep=$('duel-current').checked,w=$('duel-w').value,b=$('duel-b').value,delay=Number($('duel-delay').value),turn=keep?$('duel-turn').value:'w'
-    checkpoint();if(!keep)game=fresh()
+    checkpoint();if(!keep)game=fresh();else beginRealityTimeline(game)
     game.result=null;game.pending=false;game.doubleTurn=0;game.frozenTurns=0;game.checkmateImmunity=false;game.bossState={};game.bossActionStreak=null;game.bossRecentActions=[];game.bossHoleUntil=0;game.realityFlipUntil=0;game.realityFlipNeedsAction=false
     game.duel={w,b,delay,turn,plies:0,half:0,positions:[duelKey(game,turn)]};game.view='w';game.side='w';spawnColor='w';mode='move';resetSelection();modal.close();duelRunning=true;save();render();scheduleDuel()
   }
@@ -461,7 +463,7 @@ function rewindDialog() {
   if(!undoStack.length){notice='Nothing to reverse yet.';renderStatus();return}
   dialog('Time reversal','<p class="dialog-copy">Restore an earlier board, including captured pieces and board size. Your custom library is kept. The reversal itself can be undone.</p><div class="promos">'+Array.from({length:Math.min(5,undoStack.length)},(_,i)=>'<button data-rewind="'+(i+1)+'">'+(i+1)+' action'+(i?'s':'')+' back</button>').join('')+'</div>','rewind')
   modal.querySelectorAll('[data-rewind]').forEach(b=>b.onclick=()=>{
-    const old=clone(undoStack.at(-Number(b.dataset.rewind)));checkpoint();game=old;game.pending=false;game.doubleTurn=0;spawnColor=game.side;mode='move';log('Time reversal · restored '+b.dataset.rewind+' action(s)');modal.close();endAction();notice='Timeline restored.';renderStatus();reviewQueue()
+    const old=clone(undoStack.at(-Number(b.dataset.rewind)));checkpoint();game=old;beginRealityTimeline(game);game.pending=false;game.doubleTurn=0;spawnColor=game.side;mode='move';log('Time reversal · restored '+b.dataset.rewind+' action(s)');modal.close();endAction();notice='Timeline restored.';renderStatus();reviewQueue()
   })
 }
 function expandDialog() {
@@ -903,7 +905,6 @@ async function bossTurn(token){
   if(!chosen||!canBossRepeat(game,actor,bossActionKind(chosen.action))){game.pending=false;notice='Boss has no available action';save();render();return}
   const action=chosen.action
   Object.assign(game,chosen.state)
-  markRealityAction(game,action.power||'move')
   const count=bossInfo(game,actor).turns
   game.result=count>=BOSS_GRACE?bossOutcome(game,actor,catalog()):null
   const entry=log(bossDescription(action),botTitle()+(id==='illegal'&&suggestion?' · Stockfish-assisted':''))
@@ -936,6 +937,7 @@ function restore(direction) {
   annotations = []
   destination.push(clone(game))
   game = source.pop()
+  if(!game.realityTimeline)beginRealityTimeline(game)
   if(game.duel){game.pending=false;duelRunning=false;duelBusy=false}
   spawnColor = game.side
   resetSelection()
