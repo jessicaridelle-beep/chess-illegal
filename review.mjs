@@ -1,5 +1,5 @@
 import { Chess } from './vendor/chess.mjs'
-import { orthodox, movement, other, boardSize, destinations, isRoyal, isDivine } from './game.mjs?v=mate-22'
+import { orthodox, movement, other, boardSize, destinations, isRoyal, isDivine } from './game.mjs?v=royal-23'
 
 const value = { p: 1, n: 3, b: 3.2, r: 5, q: 9, k: 0 }
 const worth = (piece) => (piece ? (value[piece.t] ?? 6) : 0)

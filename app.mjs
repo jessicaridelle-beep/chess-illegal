@@ -3,7 +3,7 @@ import {
   fresh,
   beginRealityTimeline,
   realityFlipRemaining, markRealityAction, canBossFlip, bossActionKind, bossRepeatLimit, markBossStreak, canBossRepeat, bossFamily, blackHoleRemaining, blackHoleActionGap, bossNeedsMove,
-  isBoss, BOSS_GRACE, bossInfo, bossReply, bossOutcome, bossConsumeFreeze, bossConsumeLock, bossHasRoyal,
+  isBoss, BOSS_GRACE, bossInfo, bossReply, bossOutcome, clearBossImmunity, bossConsumeFreeze, bossConsumeLock, bossHasRoyal,
   isDivine, isDestroyed, mergePieces, destroySquare, toggleCheckmateImmunity,
   clone,
   files,
@@ -20,9 +20,9 @@ import {
   threatenedKings,
   convertPiece,
   boardSize, boardFiles, boardRanks, allSquares, expandBoard, blackHole, xy, legalBotTrial, sandboxNoMove, clonePiece, toggleImmortality, freezeBot, toggleRealityLock, consumeBotFreeze, godTrial, godPower,
-} from './game.mjs?v=mate-22'
-import { stockfishMove, compareMove, brilliantHunterMove, preanalyzePosition, analysisStats, getCachedComparison } from './engine.mjs?v=mate-22'
-import { grades, reviewAction, engineGrade, displayGrade, latestBoardGrade, gradeSquares, trackerSummary, nextTrackerReview, classifyAction, lockBadge, badgeEffect, badgePulseKey, waitingForRating, finishRating } from './review.mjs?v=mate-22'
+} from './game.mjs?v=royal-23'
+import { stockfishMove, compareMove, brilliantHunterMove, preanalyzePosition, analysisStats, getCachedComparison } from './engine.mjs?v=royal-23'
+import { grades, reviewAction, engineGrade, displayGrade, latestBoardGrade, gradeSquares, trackerSummary, nextTrackerReview, classifyAction, lockBadge, badgeEffect, badgePulseKey, waitingForRating, finishRating } from './review.mjs?v=royal-23'
 const $ = (id) => document.getElementById(id),
   modal = $('modal'),
   board = $('board')
@@ -160,7 +160,7 @@ async function duelStep(){
 function duelDialog(){
   pauseDuel();renderStatus()
   const old=game.duel
-  dialog('Bot vs Bot','<p class="dialog-copy">Choose either bot for either color. Ordinary bots use normal moves. OWNER and Illegal Stockfish can use every sandbox power, but cannot take or erase the opponent’s last king. After their seventh move they may win only with a legal checkmate, including custom-piece movement dots. Active powers cannot deliver the final mate. Flip protection: only surviving pieces switch sides; boss rewinds cannot cross a flip or restore an older match. Anti-spam v3: at most three special powers in any five completed actions; actual piece moves are required between bursts. Black Hole has a shared 20-second cooldown and eight intervening actions. Illegal moves, delete and spawn retain their three-use caps. Pause to edit the board with sandbox tools.</p><label class="form-field">White bot<select id="duel-w">'+selectOptions(duelOptions(),old?.w||'fish')+'</select></label><label class="form-field">Black bot<select id="duel-b">'+selectOptions(duelOptions(),old?.b||'fishmax')+'</select></label><label class="form-field">Move delay<select id="duel-delay">'+selectOptions([['150','Fast'],['500','Normal'],['1200','Slow'],['2500','Very slow']],String(old?.delay||500))+'</select></label><label class="check-row"><input id="duel-current" type="checkbox" '+(old?'checked':'')+'> Use current board (keep custom pieces)</label><label class="form-field">Side to move on current board<select id="duel-turn">'+selectOptions([['w','White'],['b','Black']],old?.turn||'w')+'</select></label><label class="check-row"><input id="duel-marks" type="checkbox" '+(prefs.marks?'checked':'')+'> On-board move rating badges</label><label class="check-row"><input id="duel-cinematic" type="checkbox" '+(prefs.cinematic?'checked':'')+'> Cinematic move effects</label><label class="form-field">Board theme<select id="duel-theme">'+selectOptions([['green','Classic green'],['wood','Warm wood'],['blue','Midnight blue'],['mono','Monochrome'],['editgray','Chess edits · grayscale']],prefs.theme)+'</select></label><p class="dialog-note">Brilliant Hunter can play either color and searches for engine-supported sacrifices on standard boards. Ratings are illustrative difficulty labels, not measured Elo. Stockfish variants use the bundled engine on compatible boards; other profiles use the sandbox engine.</p><div class="dialog-actions"><button class="secondary" id="duel-cancel">Cancel</button><button class="primary" id="duel-start">Start match</button></div>','duel')
+  dialog('Bot vs Bot','<p class="dialog-copy">Choose either bot for either color. Ordinary bots use normal moves. OWNER and Illegal Stockfish cannot activate Checkmate Immunity, create God Kings, or make royal pieces immortal. All other sandbox powers remain available, but they cannot take or erase the opponent’s last king. After their seventh move they may win only with a legal checkmate, including custom-piece movement dots. Active powers cannot deliver the final mate. Flip protection: only surviving pieces switch sides; boss rewinds cannot cross a flip or restore an older match. Anti-spam v3: at most three special powers in any five completed actions; actual piece moves are required between bursts. Black Hole has a shared 20-second cooldown and eight intervening actions. Illegal moves, delete and spawn retain their three-use caps. Pause to edit the board with sandbox tools.</p><label class="form-field">White bot<select id="duel-w">'+selectOptions(duelOptions(),old?.w||'fish')+'</select></label><label class="form-field">Black bot<select id="duel-b">'+selectOptions(duelOptions(),old?.b||'fishmax')+'</select></label><label class="form-field">Move delay<select id="duel-delay">'+selectOptions([['150','Fast'],['500','Normal'],['1200','Slow'],['2500','Very slow']],String(old?.delay||500))+'</select></label><label class="check-row"><input id="duel-current" type="checkbox" '+(old?'checked':'')+'> Use current board (keep custom pieces)</label><label class="form-field">Side to move on current board<select id="duel-turn">'+selectOptions([['w','White'],['b','Black']],old?.turn||'w')+'</select></label><label class="check-row"><input id="duel-marks" type="checkbox" '+(prefs.marks?'checked':'')+'> On-board move rating badges</label><label class="check-row"><input id="duel-cinematic" type="checkbox" '+(prefs.cinematic?'checked':'')+'> Cinematic move effects</label><label class="form-field">Board theme<select id="duel-theme">'+selectOptions([['green','Classic green'],['wood','Warm wood'],['blue','Midnight blue'],['mono','Monochrome'],['editgray','Chess edits · grayscale']],prefs.theme)+'</select></label><p class="dialog-note">Brilliant Hunter can play either color and searches for engine-supported sacrifices on standard boards. Ratings are illustrative difficulty labels, not measured Elo. Stockfish variants use the bundled engine on compatible boards; other profiles use the sandbox engine.</p><div class="dialog-actions"><button class="secondary" id="duel-cancel">Cancel</button><button class="primary" id="duel-start">Start match</button></div>','duel')
   $('duel-cancel').onclick=()=>modal.close()
   $('duel-start').onclick=()=>{
     const keep=$('duel-current').checked,w=$('duel-w').value,b=$('duel-b').value,delay=Number($('duel-delay').value),turn=keep?$('duel-turn').value:'w'
@@ -814,6 +814,7 @@ function renderStatus() {
   $('power-area').innerHTML=infoPiece?'<section class="piece-inspector"><div class="inspector-head"><div class="art-box">'+pieceArt(infoPiece.t,infoPiece.c,catalog())+'</div><div><h3>'+esc(label(infoPiece.t))+'</h3><p>'+esc(movementDescription(infoPiece.t))+'</p>'+(infoPiece.traits?.length?'<p>Inherited movement: '+esc(infoPiece.traits.map(t=>names[t]||t).join(', '))+'</p>':'')+'</div></div>'+abilityCards(infoPiece,!!selectedPiece&&selectedPiece.c===game.side&&!game.result)+'<div class="form-row">'+(selectedPiece?'<button class="power-btn" data-special="transform">'+icon('rotate',16)+'Transform piece</button>':'')+(selectedPiece&&selectedPiece.c!==game.side?'<button class="power-btn quick-convert" data-special="convert">'+icon('convert',16)+'Convert to my side</button>':'')+'</div></section>':''
 }
 function render() {
+  clearBossImmunity(game,game.duel?['w','b'].filter(c=>isBoss(game.duel[c])):isBoss(prefs.bot)?[other(game.side)]:[])
   renderBoard()
   renderStatus()
   paintReview()
@@ -1108,7 +1109,7 @@ function showHelp() {
     ['Board effects','Red highlights identify attacked kings. Right-click a square to mark it, or right-drag to draw an arrow. Customize board colors and animations in settings.'],
     [
       'Bot turns',
-      'Ordinary bots never use powers, even when controlling a custom piece. They must move legally and protect their king. Each opponent has a different estimated Elo and search strength. OWNER and Illegal Stockfish can move illegally and use all sandbox powers, but cannot win before seven boss moves. GPT (AI GOD) is another exception: up to two pawn spawns, one reality flip, and limited non-capturing sidesteps with a four-turn cooldown. It cannot check a king directly using a power. All other ordinary bots have no powers.'
+      'Ordinary bots never use powers, even when controlling a custom piece. They must move legally and protect their king. Each opponent has a different estimated Elo and search strength. OWNER and Illegal Stockfish can move illegally and use sandbox powers except Checkmate Immunity, God King creation, and royal immortality. They must win with a legal checkmate after the grace period. GPT (AI GOD) is another exception: up to two pawn spawns, one reality flip, and limited non-capturing sidesteps with a four-turn cooldown. It cannot check a king directly using a power. All other ordinary bots have no powers.'
     ],
   ]
   dialog(
@@ -1128,7 +1129,7 @@ function selectOptions(values, current) {
     .join('')
 }
 function botFields(){
-  return '<label class="form-field">Opponent · estimated Elo<select id="opponent">'+selectOptions(Object.entries(botProfiles).map(([id,p])=>[id,p[0]+' · '+(isHunter(id)?'Sacrifice search':p[2]+' Elo')+(id==='gpt'?' · AI GOD':'')]),prefs.bot)+'</select></label><p class="dialog-copy">OWNER and Illegal Stockfish use all powers, with a seven-boss-move grace period. GPT / AI GOD has limited powers. Brilliant Hunter searches for sound sacrifices, then plays its best legal move if no brilliant candidate qualifies. Other bots have no powers. Ratings are fictional difficulty targets, not measured Elo.</p>'
+  return '<label class="form-field">Opponent · estimated Elo<select id="opponent">'+selectOptions(Object.entries(botProfiles).map(([id,p])=>[id,p[0]+' · '+(isHunter(id)?'Sacrifice search':p[2]+' Elo')+(id==='gpt'?' · AI GOD':'')]),prefs.bot)+'</select></label><p class="dialog-copy">OWNER and Illegal Stockfish use sandbox powers except Checkmate Immunity, God King creation and royal immortality, with a seven-boss-move grace period and legal checkmate required. GPT / AI GOD has limited powers. Brilliant Hunter searches for sound sacrifices, then plays its best legal move if no brilliant candidate qualifies. Other bots have no powers. Ratings are fictional difficulty targets, not measured Elo.</p>'
 }
 function readBotFields(){prefs.bot=$('opponent').value;prefs.level=profile()[3]}
 function settings() {
