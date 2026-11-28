@@ -753,7 +753,6 @@ function actOn(sq) {
     return
   }
   if (p.t === 'p' && sq.slice(1) === (p.c === 'w' ? String(boardSize(game)) : '1')) {
-    if(game.duel||game.pending){return}
     piecePicker('Promote pawn', 'Choose what your pawn becomes.', p.c, (t) => travel(from, sq, t))
     return
   }
