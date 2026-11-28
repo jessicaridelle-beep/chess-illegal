@@ -21,7 +21,7 @@ export function mateFinisher(state,entry,attack){
   return pairs.find(x=>x.attacker.sq===to)||pairs[0]||{attacker:null,king:kings[0]}
 }
 export function finisherStyle(type){
-  return ({q:{color:'#bb62ff',name:'Queen',pattern:'burst'},r:{color:'#57f482',name:'Rook',pattern:'straight'},b:{color:'#4ee6ff',name:'Bishop',pattern:'diagonal'},n:{color:'#ffb34e',name:'Knight',pattern:'leap'},p:{color:'#ffd96a',name:'Pawn',pattern:'spark'},k:{color:'#f9eaff',name:'King',pattern:'ring'}})[type]||{color:'#c6a2ff',name:type?'Custom piece':'Checkmate',pattern:'ring'}
+  return ({q:{color:'#bb62ff',name:'Queen',pattern:'burst'},r:{color:'#57f482',name:'Rook',pattern:'straight'},b:{color:'#22f3d9',name:'Bishop',pattern:'beam'},n:{color:'#ffb34e',name:'Knight',pattern:'leap'},p:{color:'#ffd96a',name:'Pawn',pattern:'spark'},k:{color:'#f9eaff',name:'King',pattern:'ring'}})[type]||{color:'#c6a2ff',name:type?'Custom piece':'Checkmate',pattern:'ring'}
 }
 export function scenePoint(sq,size,view){
   if(!sq)return null
@@ -70,10 +70,22 @@ function renderMateCutaway(layer,match,art){
   vars(cut,{'--mate-accent':theme.color})
   node('div','mate-cutaway-haze',cut)
   const title=node('div','mate-cutaway-title',cut)
-  title.textContent=attacker?theme.name+' · Checkmate':'Checkmate'
+  title.textContent=attacker?theme.name+' · '+(theme.pattern==='beam'?'Diagonal beam':'Checkmate'):'Checkmate'
   const ns='http://www.w3.org/2000/svg',svg=document.createElementNS(ns,'svg')
   svg.setAttribute('class','mate-cutaway-paths');svg.setAttribute('viewBox','0 0 100 100')
-  if(attacker){
+  if(attacker&&theme.pattern==='beam'){
+    // Stylized chess magic: a charging orb and a luminous diagonal pulse.
+    for(const cls of ['bishop-beam-halo','bishop-beam-core','bishop-beam-edge']){
+      const p=document.createElementNS(ns,'path');p.setAttribute('class',cls);p.setAttribute('d','M 25 68 L 75 28');p.setAttribute('pathLength','1');svg.append(p)
+    }
+    const hero=node('div','mate-cutaway-hero',cut);hero.innerHTML=art(attacker.t,attacker.c)
+    const charge=node('div','bishop-charge',cut)
+    for(let i=0;i<3;i++){const ring=node('span','bishop-charge-ring',charge);vars(ring,{'--charge-delay':i*65+'ms'})}
+    const pulse=node('span','bishop-pulse',cut)
+    const impact=node('div','bishop-impact',cut)
+    for(let i=0;i<20;i++){const ray=node('i','bishop-impact-ray',impact);vars(ray,{'--angle':i*18+'deg','--length':(25+i%5*12)+'%'})}
+    node('span','bishop-impact-ring',impact)
+  }else if(attacker){
     const paths=theme.pattern==='leap'?['M 25 52 Q 34 8 52 24 T 75 52','M 25 52 L 25 24 L 75 24 L 75 52']:theme.pattern==='diagonal'?['M 25 70 L 75 30','M 25 78 L 75 38']:theme.pattern==='burst'?['M 25 52 L 75 52','M 25 52 L 71 31','M 25 52 L 71 73']:theme.pattern==='straight'?['M 25 52 L 75 52','M 25 48 L 75 48','M 25 56 L 75 56']:theme.pattern==='spark'?['M 25 64 L 75 40']:['M 25 52 Q 50 22 75 52','M 25 52 Q 50 82 75 52']
     for(const d of paths)for(const cls of ['mate-path-halo','mate-path-core']){
       const p=document.createElementNS(ns,'path');p.setAttribute('class',cls);p.setAttribute('d',d);p.setAttribute('pathLength','1');svg.append(p)
