@@ -12,11 +12,11 @@ export const grades = {
   great: ['Great', '!'],
   illegalBrilliant: ['Illegal brilliant', '!!'],
   illegalGood: ['Illegal good', '✓'],
-  illegalExcellent: ['Illegal excellent', '✓'],
+  illegalExcellent: ['Illegal excellent', '✧'],
   illegalInaccuracy: ['Illegal inaccuracy', '?!'],
   illegalMiss: ['Illegal miss', '×'],
   illegalGreat: ["Illegal great","!"],
-  illegalBest: ["Illegal capture","★"],
+  illegalBest: ["Illegal best","★"],
   illegalMove: ["Illegal move","✦"],
   illegalMistake: ["Illegal mistake","?!"],
   illegalBlunder: ["Illegal blunder","??"],
@@ -34,7 +34,7 @@ export const grades = {
   miss: ['Miss', '×'],
   sandbox: ['Sandbox move', '✦'],
   best: ['Best', '★'],
-  excellent: ['Excellent', '!'],
+  excellent: ['Excellent', '✦'],
   good: ['Good', '✓'],
   inaccuracy: ['Inaccuracy', '?!'],
   mistake: ['Mistake', '?'],
@@ -108,6 +108,63 @@ function newFork(before, after, from, to, actor) {
   return targets.some((square) => !oldTargets.includes(square))
 }
 
+// Fast one-ply positional judge. No network/engine wait and no random grade rotation.
+// Evaluate material, development, central control and the biggest immediate capture risk.
+function fastBoard(fen){
+  const b={};fen.split(' ')[0].split('/').forEach((row,i)=>{
+    let x=0;for(const t of row){if(/[1-8]/.test(t))x+=Number(t);else{b['abcdefgh'[x++]+(8-i)]={c:t===t.toUpperCase()?'w':'b',t:t.toLowerCase()}}}
+  });return b
+}
+function fastPosition(b,actor,size=8,blocked=[]){
+  const entries=Object.entries(b),own=entries.filter(([,p])=>p.c===actor),enemy=entries.filter(([,p])=>p.c!==actor)
+  const center=(size-1)/2
+  let score=0,risk=0,pressure=0
+  for(const [sq,p] of entries){
+    const x=sq.charCodeAt(0)-97,y=Number(sq.slice(1))-1,advance=p.c==='w'?y:size-1-y
+    const central=(size-1-Math.abs(x-center)-Math.abs(y-center))/(size-1)
+    let pos=0
+    if(p.t==='p')pos=.09*Math.max(0,advance-1)+.26*central
+    else if(['n','b'].includes(p.t))pos=.46*central+.23*(advance>0)
+    else if(p.t==='r')pos=.12*central+.08*(advance>0)
+    else if(p.t==='q')pos=.13*central
+    else if(p.t==='k')pos=(entries.length>14?-.30:.25)*central+.22*(advance===0&&[2,size-2].includes(x))
+    else pos=.20*central
+    score+=(p.c===actor?1:-1)*(worth(p)+pos)
+  }
+  const riskFor=(victims,attackers)=>{
+    let max=0
+    for(const [sq,p] of victims){
+      if(p.t==='godking'||p.divine||p.immortal)continue
+      const attacks=attackers.filter(([at])=>movement(b,at,sq,size,blocked,true))
+      if(!attacks.length)continue
+      if(p.t==='k'){max=Math.max(max,1.3);continue}
+      const targetAsEnemy={...b,[sq]:{...p,c:other(p.c)}}
+      const defended=victims.some(([at])=>at!==sq&&movement(targetAsEnemy,at,sq,size,blocked,true))
+      const least=Math.min(...attacks.map(([,q])=>q.t==='k'?20:worth(q)))
+      max=Math.max(max,defended?Math.max(0,worth(p)-least):worth(p))
+    }return max
+  }
+  risk=riskFor(own,enemy);pressure=riskFor(enemy,own)
+  return score-.94*risk+.14*pressure
+}
+export function instantLegalGrade(moves,played,actor,offer=false){
+  if(!moves.length)return null
+  const ranked=moves.map(m=>({m,score:fastPosition(fastBoard(m.after),actor)+(/#$/.test(m.san)?1000:/\+$/.test(m.san)?.18:0)})).sort((x,y)=>y.score-x.score)
+  const actual=ranked.find(x=>x.m.lan===played)
+  if(!actual)return null
+  const best=ranked[0].score,loss=Math.max(0,best-actual.score),runner=ranked.find(x=>x.m.lan!==played)
+  const margin=runner?actual.score-runner.score:0
+  let key,detail
+  if(loss>=3.5){key='blunder';detail='The quick comparison finds a major missed gain or material risk.'}
+  else if(loss>=1.55){key='mistake';detail='A materially safer or stronger move was available.'}
+  else if(loss>=.75){key='inaccuracy';detail='A stronger immediate continuation was available.'}
+  else if(loss<=.08&&margin>=1.3&&!offer){key='great';detail='Stands out clearly from the other immediate alternatives.'}
+  else if(loss<=.06){key='best';detail='Top-ranked by the instant positional comparison.'}
+  else if(loss<=.30){key='excellent';detail='Very close to the top instant evaluation.'}
+  else {key='good';detail='Reasonable move with a modest difference from the top candidate.'}
+  // A shallow positional comparison cannot establish a sound sacrifice.
+  return grade(key,detail,'Instant positional estimate')
+}
 export function reviewMove(before, after, action, actor, outcome) {
   const { from, to, promotion, power } = action,
     mover = before.b[from]
@@ -187,13 +244,17 @@ export function reviewMove(before, after, action, actor, outcome) {
   const uci=from+to+(promotion||'')
   if(isBookMove(chess,uci))return {grade:grade('book','Recognized move in the built-in opening book.','Opening book · curated lines')}
   const fen = chess.fen()
-  const alternatives = chess.moves({verbose:true}).map(m=>m.from+m.to+(m.promotion||'')).filter(m=>m!==from+to+(promotion||''))
+  const allMoves=chess.moves({verbose:true})
+  const alternatives = allMoves.map(m=>m.from+m.to+(m.promotion||'')).filter(m=>m!==from+to+(promotion||''))
   chess.move(candidate)
   const expectedBoard=chess.board().flat().filter(Boolean)
   if(expectedBoard.length!==Object.keys(after.b).length||expectedBoard.some(p=>after.b[p.square]?.c!==p.color||after.b[p.square]?.t!==p.type))return sandbox
   const captured = value[candidate.captured] || 0
   const offer = worth(mover) >= 3 && exchangeGain(chess, to) - captured >= 1.75
-  return { grade: sandbox.grade, search: { fen, played: from + to + (promotion || ''), offer, alternatives } }
+  const instant=instantLegalGrade(allMoves,uci,actor,offer)
+  // Keep the visual rating explicitly provisional in meaning, but immutable on-screen.
+  const first=instant?{...grade('sandbox',instant.detail,instant.source),visualKey:instant.key}:sandbox.grade
+  return { grade: first, search: { fen, played: uci, offer, alternatives } }
 }
 function scoreInPawns(score) {
   if (score.type === 'cp') return score.value / 100
@@ -260,9 +321,14 @@ export function reviewAction(before,after,action,actor,outcome){
   if(legality.kind!=='legal')delete result.search
   const gained=points(after.b,actor)-points(before.b,actor)
   const quick=result.grade.visualKey||result.grade.key
-  const quality=result.grade.key!=='sandbox'?quick:
+  let quality=result.grade.key!=='sandbox'?quick:
     ['blunder','mistake','inaccuracy','miss'].includes(quick)?quick:
     quick==='brilliant'||gained>=12?'brilliant':gained>=5?'best':gained>=2?'great':gained>0?'excellent':'good'
+  if(result.grade.key==='sandbox'&&quality==='good'&&!action.power){
+    const delta=fastPosition(after.b,actor,boardSize(after),after.destroyed||[])-fastPosition(before.b,actor,boardSize(before),before.destroyed||[])
+    if(delta>=1.4)quality='great';else if(delta>=.20)quality='excellent';else if(delta<=-2.5)quality='blunder';else if(delta<=-.9)quality='mistake';else if(delta<=-.28)quality='inaccuracy'
+    result.grade.detail+=' Quick positional change: '+(delta>=0?'+':'')+delta.toFixed(2)+'.'
+  }
   if(legality.kind==='power'){
     const category=illegalPowerGrades[action.power]||'customPower'
     result.grade.powerCategory=category
@@ -271,7 +337,7 @@ export function reviewAction(before,after,action,actor,outcome){
     result.grade.source=(outcome?'Game result · ':'Sandbox power · ')+grades[category][0]
     return result
   }
-  result.grade.visualKey=legality.kind==='illegal'?(illegalQuality[quality]||'illegalMove'):quality
+  result.grade.visualKey=legality.kind==='illegal'?(quality==='good'?'illegalMove':illegalQuality[quality]||'illegalMove'):quality
   if(result.grade.key==='sandbox')result.grade.source='Sandbox estimate · '+grades[result.grade.visualKey][0]
   return result
 }

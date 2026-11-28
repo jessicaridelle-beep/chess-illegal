@@ -1582,3 +1582,7 @@ input[type='checkbox'] {
  @keyframes instant-star{0%{scale:.4;rotate:-25deg;opacity:0}65%{scale:1.18;rotate:6deg;opacity:1}100%{scale:1;rotate:0deg;opacity:1}}
  @keyframes instant-wave{0%{scale:1;opacity:.95;border-width:2px}100%{scale:2.4;opacity:0;border-width:1px}}
 }
+
+/* Excellent is visually distinct from Good; no shared checkmark. */
+.grade-excellent{--grade-bg:#4caaa0;--grade-fg:#fff}
+.grade-illegalExcellent{--grade-bg:#ac70dc;--grade-fg:#fff}
