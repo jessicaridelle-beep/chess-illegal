@@ -1,7 +1,7 @@
 import { initMusic } from './music.mjs?v=music-31'
 import { actionHold, delayForPresentation, extendPresentation, preparedRatingMatches } from './presentation.mjs?v=tempo-28'
-import { isMate, isBrilliant, canPlayFinale, playFinale } from './finale.mjs?v=sky-33'
-import { paintEditPaths, clearEditPaths, burstEdit, editPaths, syncBadgeTint } from './editfx.mjs?v=tint-29'
+import { isMate, isBrilliant, isGreat, canPlayFinale, playFinale } from './finale.mjs?v=impact-34'
+import { paintEditPaths, clearEditPaths, burstEdit, editPaths, syncBadgeTint, tacticalTrails, geometryAttack } from './editfx.mjs?v=impact-34'
 import { describeEffect, effectDuration, unlockSound, playEffectSound, renderEffects, playFinaleSound } from './effects.mjs?v=sky-33'
 import { icon, names, abilities, powers, originals, pieceArt, pieceAbilities, movementDescription, passiveAbilities, areaAbilities, escapeHtml as esc } from './ui.mjs?v=boss-11'
 import {
@@ -341,6 +341,7 @@ function annotateAction(entry,before,action,actor,assessment=reviewAction(before
   if(preparedRatingMatches(prepared,entry.search))finishRating(entry,prepared.grade)
   if(entry.search){const cached=getCachedComparison(entry.search.fen,entry.search.played,entry.search.alternatives);if(cached)finishRating(entry,engineGrade(entry.search,cached))}
   lockBadge(entry)
+  if(entry.search||isBrilliant(entry.badge)||isGreat(entry.badge)||isMate(game.result))entry.tactical=tacticalTrails(before,game,entry,(s,x,y,support)=>geometryAttack(s,x,y,support,movement))
   if(entry.search)reviewQueue()
 }
 function markEdit(text,action,before=undoStack.at(-1),actor=game.side){
@@ -357,16 +358,16 @@ function maybeFinale(entry=game.logs.at(-1)){
   const grade=displayGrade(entry),mate=isMate(game.result)
   if(!canPlayFinale(entry,grade,game.result,prefs))return
   const attack=(from,to)=>movement(game.b,from,to,boardSize(game),game.destroyed||[],true)
-  const duration=playFinale(board,game,entry,grade,{size:boardSize(game),view:game.view,art:(t,c)=>pieceArt(t,c,catalog()),attack,paths:editPaths(game,entry,attack)})
+  const duration=playFinale(board,game,entry,grade,{size:boardSize(game),view:game.view,art:(t,c)=>pieceArt(t,c,catalog()),attack,paths:{...editPaths(game,entry,attack),links:entry.tactical||tacticalTrails(null,game,entry,(s,x,y,support)=>geometryAttack(s,x,y,support,movement))}})
   if(duration){lastFinale=entry.id;finaleUntil=Date.now()+duration;lockPresentation(duration+40);if(prefs.sound)playFinaleSound(mate)}
 }
-function previewFinale(mate=false){
+function previewFinale(mate=false,great=false){
   if(duelBusy||game.pending||waitingForRating(game.logs.at(-1))||Date.now()<finaleUntil){$('preview-status').textContent='Wait for the current move to finish.';return}
   if(globalThis.matchMedia?.('(prefers-reduced-motion: reduce)').matches){$('preview-status').textContent='Your device requests reduced motion. Cinematics are disabled by that accessibility setting.';return}
   if(game.duel)pauseDuel()
   const state={b:mate?{h8:{c:'b',t:'k'},f7:{c:'w',t:'k'},g7:{c:'w',t:'q'}}:{h8:{c:'b',t:'k'},e2:{c:'w',t:'k'},e8:{c:'b',t:'r'},e7:{c:'w',t:'q'},f2:{c:'w',t:'p'},g7:{c:'b',t:'p'}},result:mate?{winner:'w',reason:'Checkmate'}:null,size:8}
   const entry={id:'preview',actor:'w',sq:mate?'g7':'e7',fx:{from:mate?'g4':'b4',to:mate?'g7':'e7'}}
-  const duration=playFinale(board,state,entry,{key:'brilliant'},{size:8,view:'w',art:(t,c)=>pieceArt(t,c,catalog()),paths:{move:mate?['g5','g6']:['c5','d6'],threat:mate?['h8']:['e8']},preview:true})
+  const duration=playFinale(board,state,entry,{key:great?'great':'brilliant'},{size:8,view:'w',art:(t,c)=>pieceArt(t,c,catalog()),paths:{move:mate?['g5','g6']:['c5','d6'],threat:mate?['h8']:['e8'],links:tacticalTrails(null,state,entry,(s,x,y,support)=>geometryAttack(s,x,y,support,movement))},preview:true})
   if(duration){finaleUntil=Date.now()+duration;lockPresentation(duration+40);if(prefs.sound)playFinaleSound(mate);board.scrollIntoView({block:'nearest'});$('preview-status').textContent='Playing a visual demo; your real position and rating are unchanged.'}
 }
 function showResultAfterFinale(){
@@ -1582,6 +1583,7 @@ document.onkeydown = (e) => {
 decorate()
 initMusic($('music-panel'))
 $('preview-brilliant').onclick=()=>previewFinale(false)
+$('preview-great').onclick=()=>previewFinale(false,true)
 $('preview-mate').onclick=()=>previewFinale(true)
 render()
 setInterval(updateFlipCooldown,250)

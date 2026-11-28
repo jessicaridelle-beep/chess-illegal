@@ -1772,3 +1772,34 @@ input[type='checkbox'] {
 @keyframes finale-victim-out{to{opacity:0;transform:rotate(70deg) scale(.65)}}
 @keyframes finale-king-out-delayed{to{opacity:0}}
 @keyframes finale-fracture{0%{opacity:0}30%,90%{opacity:.95}100%{opacity:0}}
+
+/* Landing blooms and actual tactical relationships, after the piece touches down. */
+.finale-layer{--cin-accent:#38e5e2;--cin-light:#baffff;--cin-dark:#0e829b}
+.finale-great{--cin-accent:#67c8ff;--cin-light:#e0f3ff;--cin-dark:#2064b5}
+.finale-cell.finale-path{background:var(--cin-dark);box-shadow:inset 0 0 22px var(--cin-accent),0 0 15px var(--cin-accent)}
+.finale-cell.finale-attacker{background:var(--cin-accent);box-shadow:inset 0 0 24px var(--cin-light),0 0 18px var(--cin-accent)}
+.finale-flyer{filter:drop-shadow(0 0 8px var(--cin-light)) drop-shadow(0 0 19px var(--cin-accent))}
+.flight-core{stroke:var(--cin-light)}.flight-halo{stroke:var(--cin-accent)}
+.finale-orb{background:var(--cin-dark);border-color:var(--cin-light);box-shadow:0 0 12px 3px var(--cin-light),0 0 26px 8px var(--cin-accent)}
+.finale-ring{border-color:var(--cin-light);box-shadow:0 0 16px var(--cin-accent),inset 0 0 12px var(--cin-accent)}
+.finale-aura{width:34%}
+.finale-bloom{background:radial-gradient(circle,var(--cin-light),transparent 62%);opacity:.2;filter:blur(15px)}
+.finale-impact{inset:-35%;animation:finale-heavy-impact 1s ease-out var(--land-ms) both}
+.finale-impact-ray{height:2px;background:linear-gradient(90deg,white,var(--cin-accent),transparent)}
+.finale-ground{position:absolute;inset:30% -10% 12%;transform:rotateX(42deg) rotateZ(-10deg)}
+.finale-ground-wave{position:absolute;inset:0;border-radius:50%;border:3px solid var(--cin-light);box-shadow:0 0 15px var(--cin-accent),inset 0 0 18px var(--cin-accent);animation:finale-ground-spread 1.25s ease-out calc(var(--land-ms) + var(--wave-delay)) both}
+.finale-land-spark{position:absolute;left:50%;top:50%;width:4px;height:4px;background:white;border-radius:50%;box-shadow:0 0 9px var(--cin-accent);animation:finale-spark-spread .95s ease-out calc(var(--land-ms) + var(--spark-delay)) both}
+.finale-cell.finale-support{background:#a77925;box-shadow:inset 0 0 18px #ffdb76}
+.finale-cell.finale-exposure{background:#703b8a;box-shadow:inset 0 0 15px #d9a0ff}
+.finale-tactics{position:absolute;inset:0;width:100%;height:100%;z-index:7;overflow:visible;pointer-events:none;animation:finale-tactic-reveal .28s ease var(--land-ms) both}
+.tactical-threat{color:#ff6277}.tactical-support{color:#ffe28c}.tactical-exposure{color:#d8a2ff}
+.finale-tactics .tactical-line{fill:none;stroke:currentColor;stroke-width:.7;stroke-linecap:round;filter:drop-shadow(0 0 .65px currentColor);stroke-dasharray:1;stroke-dashoffset:1;animation:finale-tactic-draw .55s ease-out calc(var(--land-ms) + 60ms) forwards}
+.finale-tactics .tactical-dot{fill:none;stroke:currentColor;stroke-width:.4;opacity:.8}
+.finale-tactical-legend{position:absolute;z-index:12;top:8px;right:8px;display:flex;gap:6px;flex-wrap:wrap;justify-content:flex-end;max-width:70%;animation:finale-tactic-reveal .28s ease var(--land-ms) both}
+.finale-tactical-legend span,.finale-reason{font:600 clamp(10px,2.1vw,13px)/1.35 DM,sans-serif;background:#101722d9;border-radius:5px;padding:4px 7px}
+.finale-reason{position:absolute;z-index:12;bottom:8px;left:8px;right:8px;color:#f4f8ff;text-align:center;animation:finale-tactic-reveal .28s ease var(--land-ms) both;max-height:4.2em;overflow:hidden}
+@keyframes finale-heavy-impact{0%{opacity:0;transform:scale(.3)}13%{opacity:.95}100%{opacity:0;transform:scale(2.1)}}
+@keyframes finale-ground-spread{0%{opacity:0;transform:scale(.25)}14%{opacity:.95}70%{opacity:.5}100%{opacity:0;transform:scale(2.1)}}
+@keyframes finale-spark-spread{0%{opacity:0;transform:translate(-50%,-50%)}12%{opacity:.95}100%{opacity:0;transform:translate(calc(-50% + var(--spark-x)),calc(-50% + var(--spark-y))) scale(.4)}}
+@keyframes finale-tactic-reveal{from{opacity:0}to{opacity:1}}
+@keyframes finale-tactic-draw{to{stroke-dashoffset:0}}

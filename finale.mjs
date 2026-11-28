@@ -3,7 +3,8 @@ export const MATE_MS=4100,BRILLIANT_MS=3200
 export const LAND_MS=1700,SHATTER_MS=2350
 export const isMate=result=>!!result?.winner&&['Checkmate','Sandbox checkmate'].includes(result.reason)
 export const isBrilliant=grade=>['brilliant','illegalBrilliant'].includes(grade?.key)
-export const canPlayFinale=(entry,grade,result,prefs)=>!!entry?.id&&prefs.effects&&prefs.cinematic&&(isMate(result)||isBrilliant(grade))
+export const isGreat=grade=>['great','illegalGreat'].includes(grade?.key)
+export const canPlayFinale=(entry,grade,result,prefs)=>!!entry?.id&&prefs.effects&&prefs.cinematic&&(isMate(result)||isBrilliant(grade)||isGreat(grade))
 export function defeatedRoyals(state){
   if(!isMate(state.result))return []
   return Object.entries(state.b).filter(([,p])=>p.c!==state.result.winner&&(p.t==='k'||p.t==='godking'||p.royal)).map(([sq,p])=>({sq,t:p.t,c:p.c}))
@@ -48,20 +49,23 @@ const offsets=[[-15,-120,-50],[-130,-18,-65],[130,-10,72],[22,125,35]]
 function node(tag,cls,parent){const n=document.createElement(tag);n.className=cls;parent.append(n);return n}
 function vars(n,obj){for(const [k,v] of Object.entries(obj))n.style.setProperty(k,v)}
 export function playFinale(board,state,entry,grade,{size,view,art,attack,paths,preview=false}){
-  const mate=isMate(state.result),brilliant=isBrilliant(grade)
-  if((!mate&&!brilliant)||globalThis.matchMedia?.('(prefers-reduced-motion: reduce)').matches)return 0
+  const mate=isMate(state.result),brilliant=isBrilliant(grade),great=isGreat(grade)
+  if((!mate&&!brilliant&&!great)||globalThis.matchMedia?.('(prefers-reduced-motion: reduce)').matches)return 0
   board.querySelector('.finale-layer')?.remove()
   const winner=mate?state.result.winner:entry.actor
   const origin=entry?.fx?.from,to=entry?.fx?.to||entry?.sq
   const point=scenePoint(to,size,view)||{x:50,y:50}
   const duration=mate?MATE_MS:BRILLIANT_MS
-  const layer=document.createElement('div');layer.className='finale-layer '+(mate?'finale-mate':'finale-brilliant');layer.dataset.action=entry.id;layer.setAttribute('aria-hidden','true')
+  const layer=document.createElement('div');layer.className='finale-layer '+(mate?'finale-mate':great?'finale-great':'finale-brilliant');layer.dataset.action=entry.id;layer.setAttribute('aria-hidden','true')
   vars(layer,{'--finale-ms':duration+'ms','--fx-x':point.x+'%','--fx-y':point.y+'%','--finale-size':size})
   if(preview){const mark=node('small','finale-preview-label',layer);mark.textContent='Animation preview'}
   const stage=node('div','finale-stage',layer)
   const lost=defeatedRoyals(state),lostSquares=new Set(lost.map(p=>p.sq))
   const path=new Set([origin,to,...(paths?.move||[])].filter(Boolean))
   const danger=new Set(paths?.threat||[])
+  const links=(paths?.links||[]).filter(l=>scenePoint(l.from,size,view)&&scenePoint(l.to,size,view))
+  const supports=new Set(),exposed=new Set()
+  for(const l of links){if(l.kind==='threat')danger.add(l.to);if(l.kind==='support')supports.add(l.from);if(l.kind==='exposure')exposed.add(l.from)}
   for(const p of lost){danger.add(p.sq)}
   const start=scenePoint(origin,size,view)
   const mover=state.b[to],flight=!!(start&&origin!==to&&mover&&mover.c===winner)
@@ -72,6 +76,8 @@ export function playFinale(board,state,entry,grade,{size,view,art,attack,paths,p
     const sq=String.fromCharCode(97+file)+rank,p=state.b[sq],cell=node('div','finale-cell'+((file+rank)%2?' finale-dark':''),stage)
     if(path.has(sq))cell.classList.add('finale-path')
     if(danger.has(sq))cell.classList.add('finale-danger')
+    if(supports.has(sq)&&!danger.has(sq))cell.classList.add('finale-support')
+    if(exposed.has(sq)&&!danger.has(sq))cell.classList.add('finale-exposure')
     if(sq===to)cell.classList.add('finale-attacker')
     if(p&&!(flight&&sq===to)){const piece=node('div','finale-piece'+(lostSquares.has(sq)?' finale-losing':''),cell);piece.innerHTML=art(p.t,p.c)}
     if(flight&&sq===to){
@@ -80,6 +86,20 @@ export function playFinale(board,state,entry,grade,{size,view,art,attack,paths,p
     }
   }
   if(flight)flightVisual(stage,start,point,size,art(mover.t,mover.c))
+  if(links.length){
+    const ns='http://www.w3.org/2000/svg',svg=document.createElementNS(ns,'svg')
+    svg.setAttribute('class','finale-tactics');svg.setAttribute('viewBox','0 0 100 100')
+    for(const l of links){
+      const p=scenePoint(l.from,size,view),q=scenePoint(l.to,size,view)
+      const line=document.createElementNS(ns,'path');line.setAttribute('class','tactical-line tactical-'+l.kind);line.setAttribute('d','M '+p.x+' '+p.y+' L '+q.x+' '+q.y);line.setAttribute('pathLength','1');svg.append(line)
+      const dot=document.createElementNS(ns,'circle');dot.setAttribute('class','tactical-dot tactical-'+l.kind);dot.setAttribute('cx',q.x);dot.setAttribute('cy',q.y);dot.setAttribute('r',100/size*.27);svg.append(dot)
+    }
+    stage.append(svg)
+    const legend=node('div','finale-tactical-legend',layer)
+    for(const [kind,label] of [['threat','Attacks'],['support','Support'],['exposure','Capture pressure']]){
+      if(links.some(l=>l.kind===kind)){const item=node('span','tactical-'+kind,legend);item.textContent=label}
+    }
+  }
   const sky=node('div','finale-sky',stage)
   for(let i=0;i<72;i++){
     const star=node('i','finale-star',sky)
@@ -88,11 +108,16 @@ export function playFinale(board,state,entry,grade,{size,view,art,attack,paths,p
   const aura=node('div','finale-aura',stage)
   node('div','finale-bloom',aura)
   const impact=node('div','finale-impact',aura)
-  for(let i=0;i<28;i++){const ray=node('i','finale-impact-ray',impact);vars(ray,{'--ray-angle':(i*360/28)+'deg','--ray-length':(22+(i%6)*8)+'%'})}
+  for(let i=0;i<44;i++){const ray=node('i','finale-impact-ray',impact);vars(ray,{'--ray-angle':(i*360/28)+'deg','--ray-length':(22+(i%6)*8)+'%'})}
+  const ground=node('div','finale-ground',aura)
+  for(let i=0;i<3;i++){const wave=node('span','finale-ground-wave',ground);vars(wave,{'--wave-delay':i*120+'ms'})}
+  for(let i=0;i<36;i++){const spark=node('i','finale-land-spark',aura),angle=i*2.399963,dist=45+(i%9)*11;vars(spark,{'--spark-x':Math.cos(angle)*dist+'%','--spark-y':Math.sin(angle)*dist+'%','--spark-delay':(i%4)*25+'ms'})}
   for(let i=0;i<3;i++){const ring=node('span','finale-ring',aura);vars(ring,{'--rd':(i*100)+'ms'})}
-  const orb=node('b','finale-orb',aura);orb.textContent=mate?'#':'!!'
+  const orb=node('b','finale-orb',aura);orb.textContent=mate?'#':great?'!':'!!'
   node('div','finale-ribbon',stage)
   node('div','finale-vignette',layer)
+  const detail=node('div','finale-reason',layer)
+  detail.textContent=preview?'Visual preview · colored lines show board geometry':(entry.grade?.detail|| (mate?'Checkmate':great?'Great move':'Brilliant move')).split(' Best line:')[0]
   if(mate){
     for(const p of lost.slice(0,8)){
       const at=scenePoint(p.sq,size,view);if(!at)continue

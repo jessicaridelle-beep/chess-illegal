@@ -69,3 +69,42 @@ export function syncBadgeTint(layer,badge,enabled=true,color=null){
   if(state.active)layer.style.setProperty('--badge-tint',color||state.color)
   layer.dataset.active=String(state.active)
 }
+
+// Actual occupied-square attack geometry. These are tactical clues, not a proof of engine evaluation.
+export function tacticalTrails(before,after,entry,canAttack){
+  const actor=entry.actor,from=entry.fx?.from,to=entry.fx?.to,board=after.b,old=before?.b||{}
+  if(!to||entry.fx?.power||board[to]?.c!==actor)return []
+  const own=Object.entries(board).filter(([,p])=>p.c===actor)
+  const foe=Object.entries(board).filter(([,p])=>p.c!==actor)
+  const weight=p=>p.royal||['k','godking'].includes(p.t)?100:({q:9,r:5,b:3,n:3,p:1}[p.t]||7)
+  const links=[]
+  const add=(a,b,kind,score)=>links.push({from:a,to:b,kind,score})
+  const hit=(s,a,b,support=false)=>canAttack(s,a,b,support)
+  for(const [sq,p] of foe){
+    if(hit(after,to,sq))add(to,sq,'threat',weight(p)+3)
+    if(hit(after,sq,to))add(sq,to,'exposure',weight(p))
+  }
+  for(const [sq,p] of own){
+    if(sq===to)continue
+    if(hit(after,sq,to,true))add(sq,to,'support',weight(p))
+    // Highlight newly opened lines, including discovered checks. Never paint through a blocker.
+    if(!before||!old[sq]||old[sq].c!==actor)continue
+    for(const [target,enemy] of foe){
+      if(weight(enemy)<3||!old[target]||old[target].c===actor)continue
+      if(hit(after,sq,target)&&!hit(before,sq,target))add(sq,target,'threat',weight(enemy)+1)
+    }
+  }
+  const limits={threat:4,support:2,exposure:2},out=[]
+  for(const kind of Object.keys(limits)){
+    const list=links.filter(l=>l.kind===kind).sort((a,b)=>b.score-a.score).slice(0,limits[kind])
+    for(const {from,to,kind} of list)out.push({from,to,kind})
+  }
+  return out
+}
+export function geometryAttack(state,from,to,support,movement){
+  const p=state.b[from],q=state.b[to]
+  if(!p||!q||from===to||(!support&&p.c===q.c)||(support&&p.c!==q.c))return false
+  // Use occupied targets; pawns therefore never show a forward push as an attack.
+  const b=support?{...state.b,[to]:{...q,c:p.c==='w'?'b':'w'}}:state.b
+  return movement(b,from,to,state.size||8,state.destroyed||[],true)
+}
