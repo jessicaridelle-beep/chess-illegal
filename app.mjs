@@ -1,3 +1,4 @@
+import { describeEffect, effectDuration, unlockSound, playEffectSound, renderEffects } from './effects.mjs?v=impact-25'
 import { icon, names, abilities, powers, originals, pieceArt, pieceAbilities, movementDescription, passiveAbilities, areaAbilities, escapeHtml as esc } from './ui.mjs?v=boss-11'
 import {
   fresh,
@@ -42,7 +43,7 @@ let prefs = {
   level: 'balanced',
   auto: true,
   coords: true,
-  sound: false,
+  sound: true,
   effects: true,
   cinematic: true,
   marks: true,
@@ -161,11 +162,11 @@ async function duelStep(){
 function duelDialog(){
   pauseDuel();renderStatus()
   const old=game.duel
-  dialog('Bot vs Bot','<p class="dialog-copy">Choose either bot for either color. Ordinary bots use normal moves. OWNER, Illegal Stockfish and EVOLUTION cannot activate Checkmate Immunity, create God Kings, or make royal pieces immortal. All other sandbox powers remain available, but they cannot take or erase the opponent’s last king. After their seventh move they may win only with a legal checkmate, including custom-piece movement dots. Active powers cannot deliver the final mate. Flip protection: only surviving pieces switch sides; boss rewinds cannot cross a flip or restore an older match. Anti-spam v3: at most three special powers in any five completed actions; actual piece moves are required between bursts. Black Hole has a shared 20-second cooldown and eight intervening actions. Illegal moves, delete and spawn retain their three-use caps. Pause to edit the board with sandbox tools.</p><label class="form-field">White bot<select id="duel-w">'+selectOptions(duelOptions(),old?.w||'fish')+'</select></label><label class="form-field">Black bot<select id="duel-b">'+selectOptions(duelOptions(),old?.b||'fishmax')+'</select></label><label class="form-field">Move delay<select id="duel-delay">'+selectOptions([['150','Fast'],['500','Normal'],['1200','Slow'],['2500','Very slow']],String(old?.delay||500))+'</select></label><label class="check-row"><input id="duel-current" type="checkbox" '+(old?'checked':'')+'> Use current board (keep custom pieces)</label><label class="form-field">Side to move on current board<select id="duel-turn">'+selectOptions([['w','White'],['b','Black']],old?.turn||'w')+'</select></label><label class="check-row"><input id="duel-marks" type="checkbox" '+(prefs.marks?'checked':'')+'> On-board move rating badges</label><label class="check-row"><input id="duel-cinematic" type="checkbox" '+(prefs.cinematic?'checked':'')+'> Cinematic move effects</label><label class="form-field">Board theme<select id="duel-theme">'+selectOptions([['green','Classic green'],['wood','Warm wood'],['blue','Midnight blue'],['mono','Monochrome'],['editgray','Chess edits · grayscale']],prefs.theme)+'</select></label><p class="dialog-note">EVOLUTION starts with weak legal moves, learns from opponent actions, unlocks powers and adds reply search over six turns. Its displayed stage is not a measured Elo. Brilliant Hunter can play either color and searches for engine-supported sacrifices on standard boards. Ratings are illustrative difficulty labels, not measured Elo. Stockfish variants use the bundled engine on compatible boards; other profiles use the sandbox engine.</p><div class="dialog-actions"><button class="secondary" id="duel-cancel">Cancel</button><button class="primary" id="duel-start">Start match</button></div>','duel')
+  dialog('Bot vs Bot','<p class="dialog-copy">Choose either bot for either color. Ordinary bots use normal moves. OWNER, Illegal Stockfish and EVOLUTION cannot activate Checkmate Immunity, create God Kings, or make royal pieces immortal. All other sandbox powers remain available, but they cannot take or erase the opponent’s last king. After their seventh move they may win only with a legal checkmate, including custom-piece movement dots. Active powers cannot deliver the final mate. Flip protection: only surviving pieces switch sides; boss rewinds cannot cross a flip or restore an older match. Anti-spam v3: at most three special powers in any five completed actions; actual piece moves are required between bursts. Black Hole has a shared 20-second cooldown and eight intervening actions. Illegal moves, delete and spawn retain their three-use caps. Pause to edit the board with sandbox tools.</p><label class="form-field">White bot<select id="duel-w">'+selectOptions(duelOptions(),old?.w||'fish')+'</select></label><label class="form-field">Black bot<select id="duel-b">'+selectOptions(duelOptions(),old?.b||'fishmax')+'</select></label><label class="form-field">Move delay<select id="duel-delay">'+selectOptions([['150','Fast'],['500','Normal'],['1200','Slow'],['2500','Very slow']],String(old?.delay||500))+'</select></label><label class="check-row"><input id="duel-current" type="checkbox" '+(old?'checked':'')+'> Use current board (keep custom pieces)</label><label class="form-field">Side to move on current board<select id="duel-turn">'+selectOptions([['w','White'],['b','Black']],old?.turn||'w')+'</select></label><label class="check-row"><input id="duel-marks" type="checkbox" '+(prefs.marks?'checked':'')+'> On-board move rating badges</label><label class="check-row"><input id="duel-sound" type="checkbox" '+(prefs.sound?'checked':'')+'> Capture and power sounds</label><label class="check-row"><input id="duel-effects" type="checkbox" '+(prefs.effects?'checked':'')+'> Animated movement and shattering pieces</label><label class="check-row"><input id="duel-cinematic" type="checkbox" '+(prefs.cinematic?'checked':'')+'> Cinematic move effects</label><label class="form-field">Board theme<select id="duel-theme">'+selectOptions([['green','Classic green'],['wood','Warm wood'],['blue','Midnight blue'],['mono','Monochrome'],['editgray','Chess edits · grayscale']],prefs.theme)+'</select></label><p class="dialog-note">EVOLUTION starts with weak legal moves, learns from opponent actions, unlocks powers and adds reply search over six turns. Its displayed stage is not a measured Elo. Brilliant Hunter can play either color and searches for engine-supported sacrifices on standard boards. Ratings are illustrative difficulty labels, not measured Elo. Stockfish variants use the bundled engine on compatible boards; other profiles use the sandbox engine.</p><div class="dialog-actions"><button class="secondary" id="duel-cancel">Cancel</button><button class="primary" id="duel-start">Start match</button></div>','duel')
   $('duel-cancel').onclick=()=>modal.close()
   $('duel-start').onclick=()=>{
     const keep=$('duel-current').checked,w=$('duel-w').value,b=$('duel-b').value,delay=Number($('duel-delay').value),turn=keep?$('duel-turn').value:'w'
-    prefs.marks=$('duel-marks').checked;prefs.cinematic=$('duel-cinematic').checked;prefs.theme=$('duel-theme').value
+    prefs.sound=$('duel-sound').checked;prefs.effects=$('duel-effects').checked;if(prefs.sound)unlockSound();prefs.marks=$('duel-marks').checked;prefs.cinematic=$('duel-cinematic').checked;prefs.theme=$('duel-theme').value
     checkpoint();if(!keep)game=fresh();else beginRealityTimeline(game)
     game.result=null;game.pending=false;game.doubleTurn=0;game.frozenTurns=0;game.checkmateImmunity=false;game.bossState={};game.evolution={};game.bossActionStreak=null;game.bossRecentActions=[];game.bossHoleUntil=0;game.realityFlipUntil=0;game.realityFlipNeedsAction=false
     game.duel={w,b,delay,turn,plies:0,half:0,positions:[duelKey(game,turn)]};game.view='w';game.side='w';spawnColor='w';mode='move';resetSelection();modal.close();duelRunning=true;save();render();scheduleDuel()
@@ -298,7 +299,7 @@ function annotateAction(entry,before,action,actor,assessment=reviewAction(before
   observeEvolution(game,actor,action,before,assessment.legality?.kind,opponent)
   const sq=action.to||action.from||null
   if(action.hunterGrade?.key==='brilliant'&&assessment.search&&assessment.legality?.kind==='legal')assessment={grade:action.hunterGrade,legality:assessment.legality}
-  Object.assign(entry,assessment,{id:crypto.randomUUID(),sq,actor,fx:{from:action.from,to:action.to,power:action.power,capture:!!before.b[action.to],promotion:!!action.promotion}})
+  Object.assign(entry,assessment,{id:crypto.randomUUID(),sq,actor,fx:describeEffect(before,game,action,assessment.legality?.kind)})
   if(entry.search){const cached=getCachedComparison(entry.search.fen,entry.search.played,entry.search.alternatives);if(cached)finishRating(entry,engineGrade(entry.search,cached))}
   lockBadge(entry)
   if(entry.search)reviewQueue()
@@ -327,7 +328,7 @@ function revealGrade(entry) {
   setTimeout(()=>overlay.remove(),1400)
   if (prefs.sound) {
     try {
-      const a=chime.ctx||(chime.ctx=new AudioContext());a.resume().catch(()=>{})
+      const a=unlockSound();if(!a)return
       const notes=k==='blunder'||k==='miss'?[220,140]:[440,660,880]
       notes.forEach((hz,i)=>{
         const o=a.createOscillator(),g=a.createGain(),t=a.currentTime+i*.09
@@ -423,24 +424,19 @@ function showResult() {
   $('view-board').onclick = () => modal.close()
 }
 
-function chime(bot = false) {
-  if (!prefs.sound) return
-  try {
-    const a = chime.ctx || (chime.ctx = new AudioContext())
-    a.resume().catch(() => {})
-    const o = a.createOscillator(),
-      g = a.createGain()
-    o.connect(g)
-    g.connect(a.destination)
-    const fx = game.logs.at(-1)?.fx
-    const checked = threatenedKings(game,catalog()).length
-    o.frequency.value = checked ? 620 : fx?.power ? 510 : fx?.capture ? 180 : bot ? 270 : 385
-    o.frequency.exponentialRampToValueAtTime(o.frequency.value * (fx?.power ? 1.65 : 0.8), a.currentTime + 0.085)
-    g.gain.setValueAtTime(0.045, a.currentTime)
-    g.gain.exponentialRampToValueAtTime(0.001, a.currentTime + 0.09)
-    o.start()
-    o.stop(a.currentTime + 0.1)
-  } catch {}
+// A sound plays once per committed action, not once per repaint or engine badge update.
+let lastSounded=game.logs.at(-1)?.id
+function chime(){
+  const entry=game.logs.at(-1)
+  if(!entry?.fx||entry.id===lastSounded)return
+  lastSounded=entry.id
+  if(!prefs.sound)return
+  playEffectSound(entry.fx,{delay:prefs.effects&&entry.fx.travel?.length?Math.round(effectDuration(game.duel?.delay||500)*.72):0,check:!!threatenedKings(game,catalog()).length,win:!!game.result?.winner})
+}
+function syncSoundButton(){
+  const b=$('sound-toggle');if(!b)return
+  b.setAttribute('aria-pressed',String(!!prefs.sound));b.setAttribute('aria-label',prefs.sound?'Mute game sound':'Enable game sound');b.title=prefs.sound?'Mute sounds':'Enable sounds'
+  b.innerHTML=prefs.sound?'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 9h4l5-4v14l-5-4H3zM16 9a4 4 0 0 1 0 6M19 6a8 8 0 0 1 0 12"/></svg>':'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 9h4l5-4v14l-5-4H3zM16 9l5 6m0-6-5 6"/></svg>'
 }
 function endAction(reply = false) {
   if(reply)markRealityAction(game,'move')
@@ -704,14 +700,7 @@ function renderBoard() {
   board.innerHTML = html
   board.dataset.mode = mode
   paintDestinations()
-  if (animate && !entry.fx.power && entry.fx.to && entry.fx.from) {
-    const target = board.querySelector('[data-sq="'+entry.fx.to+'"]')
-    const sign = game.view === 'w' ? 1 : -1
-    const dx = (fs.indexOf(entry.fx.from[0])-fs.indexOf(entry.fx.to[0]))*sign
-    const dy = (Number(entry.fx.to.slice(1))-Number(entry.fx.from.slice(1)))*sign
-    target?.style.setProperty('--move-x', (dx*120)+'%')
-    target?.style.setProperty('--move-y', (dy*120)+'%')
-  }
+  if(animate)renderEffects(board,entry.fx,{size,view:game.view,art:(t,c)=>pieceArt(t,c,catalog()),delay:game.duel?.delay||500})
   paintAnnotations()
 }
 function paintAnnotations() {
@@ -820,6 +809,8 @@ function render() {
   clearBossImmunity(game,game.duel?['w','b'].filter(c=>isBoss(game.duel[c])):isBoss(prefs.bot)?[other(game.side)]:[])
   renderBoard()
   renderStatus()
+  syncSoundButton()
+  chime()
   paintReview()
   const latest = game.logs.at(-1)
   revealGrade(latest)
@@ -977,6 +968,7 @@ function restore(direction) {
   annotations = []
   destination.push(clone(game))
   game = source.pop()
+  lastAnimated=lastSounded=game.logs.at(-1)?.id
   if(!game.realityTimeline)beginRealityTimeline(game)
   if(game.duel){game.pending=false;duelRunning=false;duelBusy=false}
   spawnColor = game.side
@@ -1143,8 +1135,8 @@ function settings() {
       [
         ['auto', 'Automatic bot replies'],
         ['coords', 'Board coordinates'],
-        ['sound', 'Move sounds'],
-        ['effects', 'Animated moves and powers'],
+        ['sound', 'Capture, movement and power sounds'],
+        ['effects', 'Animated moves, shattering captures and powers'],
         ['cinematic', 'Cinematic move rating reveals'],
         ['marks','On-board move rating badges'],
       ]
@@ -1166,6 +1158,7 @@ function settings() {
     cancelBot()
     readBotFields()
     for (const k of ['auto', 'coords', 'sound', 'effects', 'cinematic','marks']) prefs[k] = $('pref-' + k).checked
+    if(prefs.sound)unlockSound()
     prefs.theme = $('theme').value
     game.pending = game.pending && prefs.auto
     save()
@@ -1431,6 +1424,9 @@ for (const b of document.querySelectorAll('[data-nav]'))
     else if (p === 'history') showHistory()
     else if (modal.open) modal.close()
   }
+$('sound-toggle').onclick=()=>{prefs.sound=!prefs.sound;if(prefs.sound){unlockSound();playEffectSound({capture:false})}save();syncSoundButton()}
+document.addEventListener('pointerdown',()=>{if(prefs.sound)unlockSound()},{passive:true})
+document.addEventListener('keydown',()=>{if(prefs.sound)unlockSound()},{passive:true})
 $('undo').onclick = () => restore('undo')
 $('redo').onclick = () => restore('redo')
 $('rotate').onclick = () => {

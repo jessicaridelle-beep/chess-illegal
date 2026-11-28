@@ -1591,3 +1591,29 @@ input[type='checkbox'] {
 .grade-illegalMiss{--grade-bg:#a72d66;--grade-fg:#fff}
 
 .grade-pending{background:#ffffff0b;color:inherit;border:1px solid #8886;opacity:.85}
+
+/* Impact update: piece travel, original captured-piece fragments, and independent power waves. */
+#sound-toggle svg{width:20px;height:20px}
+#sound-toggle[aria-pressed="true"]{color:#8edfc3}
+.square.piece-arrival .piece{animation:arena-slide var(--slide-ms,220ms) cubic-bezier(.15,.7,.25,1) both}
+.square.capture-flash::after{animation-delay:calc(var(--slide-ms,220ms)*.72)}
+.arena-fx-layer{position:absolute;inset:0;pointer-events:none;z-index:6;overflow:hidden}
+.arena-shatter,.arena-power-orb{position:absolute;pointer-events:none;overflow:visible}
+.arena-shard{position:absolute;inset:0;display:grid;place-items:center;opacity:1;animation:arena-shatter-piece 380ms cubic-bezier(.1,.55,.3,1) var(--impact-delay,0ms) both;transform-origin:center}
+.arena-shard .piece{width:83%;height:83%;filter:drop-shadow(0 1px 3px #0007)}
+.arena-spark{position:absolute;top:48%;left:48%;width:5%;height:5%;border-radius:1px;background:var(--impact-color);box-shadow:0 0 5px #fff9;animation:arena-spark 350ms ease-out var(--impact-delay,0ms) both}
+.arena-impact-ring{position:absolute;inset:19%;border:2px solid var(--impact-color);border-radius:50%;box-shadow:0 0 8px var(--impact-color);animation:arena-impact-ring 410ms ease-out var(--impact-delay,0ms) both}
+.arena-power-orb{background:radial-gradient(circle,transparent 15%,var(--impact-color) 20%,transparent 55%);animation:arena-orb .48s ease-out both}
+.arena-power-void{background:radial-gradient(circle,#0b0615 15%,#6032be 30%,#bb91ff 40%,transparent 65%);animation:arena-void .55s ease-out both}
+.arena-global-wave{position:absolute;inset:0;pointer-events:none;border:3px solid var(--impact-color);box-shadow:inset 0 0 36px var(--impact-color);animation:arena-wave .55s ease-out both}
+.arena-wave-time{background:repeating-linear-gradient(0deg,transparent 0 10%,#65d9ff24 11% 12%);animation:arena-time .55s ease-out both}
+.arena-wave-reality{background:linear-gradient(115deg,transparent 30%,#b78aff70 49%,transparent 68%);animation:arena-reality .55s ease-out both}
+@keyframes arena-shatter-piece{0%{opacity:1;transform:translate(0,0) scale(1)}100%{opacity:0;transform:translate(var(--shard-x),var(--shard-y)) rotate(var(--shard-r)) scale(.65)}}
+@keyframes arena-spark{0%{opacity:0;transform:translate(0,0) scale(.5)}20%{opacity:1}100%{opacity:0;transform:translate(var(--spark-x),var(--spark-y)) scale(.2)}}
+@keyframes arena-impact-ring{0%{opacity:.9;transform:scale(.3)}100%{opacity:0;transform:scale(2.1)}}
+@keyframes arena-orb{0%{opacity:0;transform:scale(.6)}25%{opacity:.8}100%{opacity:0;transform:scale(2)}}
+@keyframes arena-void{0%{opacity:0;transform:scale(1.7) rotate(0)}30%{opacity:.9}100%{opacity:0;transform:scale(.1) rotate(150deg)}}
+@keyframes arena-wave{0%{opacity:0}20%{opacity:.8}100%{opacity:0}}
+@keyframes arena-time{0%{opacity:0;transform:translateY(-8%)}20%{opacity:.8}100%{opacity:0;transform:translateY(8%)}}
+@keyframes arena-reality{0%{opacity:0;transform:translateX(-15%)}30%{opacity:.8}100%{opacity:0;transform:translateX(15%)}}
+@media(prefers-reduced-motion:reduce){.arena-fx-layer{display:none!important}.square.piece-arrival .piece{animation:none!important}}
