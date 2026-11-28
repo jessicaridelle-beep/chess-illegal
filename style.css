@@ -1959,3 +1959,5 @@ input[type='checkbox'] {
 @keyframes promo-orbit-spin{from{transform:rotate(0deg) rotateX(58deg) rotateY(20deg)}to{transform:rotate(360deg) rotateX(58deg) rotateY(20deg)}}
 @keyframes promo-orbit-envelope{0%,100%{opacity:0}20%,75%{opacity:.8}}
 @media(prefers-reduced-motion:reduce){.promo-live-comet,.promo-live-orbit{display:none}.promotion-reference-frame img{animation:none!important}}
+
+.local-promotion-film{position:fixed;inset:0;z-index:2147483000;background:#000;display:grid;place-items:center}.local-promotion-film video{width:100%;height:100%;object-fit:contain}.edit-burst-spectacular,.edit-burst-impact{filter:drop-shadow(0 0 8px var(--edit-accent))}.edit-burst-spectacular .edit-energy-ring,.edit-burst-impact .edit-energy-ring{animation-duration:1.2s}.edit-burst-spectacular .edit-stardust{animation-duration:1.1s}

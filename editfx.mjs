@@ -46,8 +46,8 @@ export function burstEdit(board,entry,grade,effect){
   const layer=document.createElement('div')
   layer.className='edit-burst edit-burst-'+effect;layer.setAttribute('aria-hidden','true')
   layer.style.setProperty('--edit-accent',color);layer.style.setProperty('--edit-x',x+'%');layer.style.setProperty('--edit-y',y+'%')
-  for(let i=0;i<2;i++){const ring=document.createElement('span');ring.className='edit-energy-ring';ring.style.setProperty('--ring-delay',i*95+'ms');layer.append(ring)}
-  const amount=effect==='spectacular'?32:effect==='impact'?22:effect==='standard'?10:18
+  for(let i=0;i<3;i++){const ring=document.createElement('span');ring.className='edit-energy-ring';ring.style.setProperty('--ring-delay',i*95+'ms');layer.append(ring)}
+  const amount=effect==='spectacular'?64:effect==='impact'?40:effect==='standard'?10:18
   for(let i=0;i<amount;i++){
     const dot=document.createElement('i'),angle=i*2.399963,dist=35+(i%7)*10
     dot.className='edit-stardust';dot.style.setProperty('--dust-x',Math.cos(angle)*dist+'px');dot.style.setProperty('--dust-y',Math.sin(angle)*dist+'px');dot.style.setProperty('--dust-size',(2+i%4)+'px');dot.style.setProperty('--dust-delay',(i%5)*12+'ms');layer.append(dot)
@@ -55,7 +55,7 @@ export function burstEdit(board,entry,grade,effect){
   if(effect==='spectacular'||effect==='impact'||effect==='power'){
     const wave=document.createElement('div');wave.className='edit-screen-wave';layer.append(wave)
   }
-  board.append(layer);setTimeout(()=>layer.remove(),950)
+  board.append(layer);setTimeout(()=>layer.remove(),1400)
   return true
 }
 

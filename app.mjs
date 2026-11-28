@@ -1,9 +1,10 @@
+import {initLocalFilm,localFilm} from './local-film.mjs?v=41'
 import {initReferenceArt} from './reference-art.mjs?v=cinema-39'
 import { promotedPiece, playPromotion, startPromotionAftermath, clearPromotionAftermath, syncPromotionAftermath } from './promotion.mjs?v=cinema-40'
 import { initMusic } from './music.mjs?v=music-40'
 import { actionHold, delayForPresentation, extendPresentation, preparedRatingMatches } from './presentation.mjs?v=tempo-28'
 import { isMate, isBrilliant, isGreat, canPlayFinale, playFinale } from './finale.mjs?v=cinema-39'
-import { paintEditPaths, clearEditPaths, burstEdit, editPaths, syncBadgeTint, tacticalTrails, geometryAttack } from './editfx.mjs?v=impact-34'
+import { paintEditPaths, clearEditPaths, burstEdit, editPaths, syncBadgeTint, tacticalTrails, geometryAttack } from './editfx.mjs?v=impact-41'
 import { describeEffect, effectDuration, unlockSound, playEffectSound, renderEffects, playFinaleSound, playPromotionSound } from './effects.mjs?v=cinema-39'
 import { icon, names, abilities, powers, originals, pieceArt, pieceAbilities, movementDescription, passiveAbilities, areaAbilities, escapeHtml as esc } from './ui.mjs?v=boss-11'
 import {
@@ -362,13 +363,13 @@ function gradeChip(entry){
 function startPromotion(piece,id,preview=false){
   const reduced=!!globalThis.matchMedia?.('(prefers-reduced-motion: reduce)').matches
   clearPromotionAftermath(board)
-  const result=playPromotion(document.body,piece,{art:(t,c)=>pieceArt(t,c,catalog()),label,preview,reduced,board,size:boardSize(game),view:game.view})
+  const result=(!reduced&&localFilm(document.body))||playPromotion(document.body,piece,{art:(t,c)=>pieceArt(t,c,catalog()),label,preview,reduced,board,size:boardSize(game),view:game.view})
   if(!result)return false
   promotionActive=result.scene
   if(!preview)lastPromotion=id
   finaleUntil=Date.now()+result.duration
   lockPresentation(result.duration+100)
-  if(prefs.sound)playPromotionSound(reduced)
+  if(prefs.sound&&!result.video)playPromotionSound(reduced)
   clearTimeout(promotionTimer)
   promotionTimer=setTimeout(()=>{
     result.scene.remove()
@@ -752,6 +753,7 @@ function actOn(sq) {
     return
   }
   if (p.t === 'p' && sq.slice(1) === (p.c === 'w' ? String(boardSize(game)) : '1')) {
+    if(game.duel||game.pending){return}
     piecePicker('Promote pawn', 'Choose what your pawn becomes.', p.c, (t) => travel(from, sq, t))
     return
   }
@@ -1628,6 +1630,7 @@ document.onkeydown = (e) => {
 }
 decorate()
 initMusic($('music-panel'))
+initLocalFilm()
 initReferenceArt($('reference-panel'))
 $('preview-brilliant').onclick=()=>previewFinale(false)
 $('preview-great').onclick=()=>previewFinale(false,true)
