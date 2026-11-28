@@ -21,8 +21,8 @@ import {
   convertPiece,
   boardSize, boardFiles, boardRanks, allSquares, expandBoard, blackHole, xy, legalBotTrial, sandboxNoMove, clonePiece, toggleImmortality, freezeBot, toggleRealityLock, consumeBotFreeze, godTrial, godPower,
 } from './game.mjs?v=tracker-16'
-import { stockfishMove, compareMove, brilliantHunterMove } from './engine.mjs?v=tracker-16'
-import { grades, reviewAction, engineGrade, displayGrade, latestBoardGrade, gradeSquares, trackerSummary, nextTrackerReview, classifyAction } from './review.mjs?v=tracker-16'
+import { stockfishMove, compareMove, brilliantHunterMove } from './engine.mjs?v=instant-17'
+import { grades, reviewAction, engineGrade, displayGrade, latestBoardGrade, gradeSquares, trackerSummary, nextTrackerReview, classifyAction, lockBadge, badgeEffect, badgePulseKey } from './review.mjs?v=instant-17'
 const $ = (id) => document.getElementById(id),
   modal = $('modal'),
   board = $('board')
@@ -238,6 +238,8 @@ function log(text, by = 'You') {
   if (game.logs.length > 300) game.logs.shift()
   return entry
 }
+// Migrate retained moves before an asynchronous review can update their visible rating.
+for(const state of [game,...undoStack,...redoStack])for(const entry of state.logs||[])lockBadge(entry)
 let activeReview = null
 async function reviewQueue() {
   if (activeReview) return
@@ -251,13 +253,13 @@ async function reviewQueue() {
     for (const snapshot of [game, ...undoStack, ...redoStack]) {
       const entry = snapshot.logs.find((item) => item.id === id)
       if (entry) {
+        lockBadge(entry)
         entry.grade = finalGrade
         delete entry.search
       }
     }
     save()
     paintReview()
-    if(game.logs.at(-1)?.id===id)revealGrade(game.logs.at(-1))
     if (modal.open && dialogPage === 'history') showHistory()
   } finally {
     activeReview = null
@@ -277,6 +279,7 @@ function annotateAction(entry,before,action,actor,assessment=reviewAction(before
   const sq=action.to||action.from||null
   if(action.hunterGrade?.key==='brilliant'&&assessment.search&&assessment.legality?.kind==='legal')assessment={grade:action.hunterGrade,legality:assessment.legality}
   Object.assign(entry,assessment,{id:crypto.randomUUID(),sq,actor,fx:{from:action.from,to:action.to,power:action.power,capture:!!before.b[action.to],promotion:!!action.promotion}})
+  lockBadge(entry)
   if(assessment.search)reviewQueue()
 }
 function markEdit(text,action,before=undoStack.at(-1),actor=game.side){
@@ -285,15 +288,14 @@ function markEdit(text,action,before=undoStack.at(-1),actor=game.side){
 function gradeChip(entry){
   const d=displayGrade(entry)
   if(!d)return ''
-  if(d.pending)return '<span class="grade-chip grade-pending">Reviewing…</span>'
   return '<span class="grade-chip grade-'+d.key+'"><i>'+d.mark+'</i>'+esc(d.title)+(d.estimated?' · estimate':'')+'</span>'
 }
 
 function revealGrade(entry) {
-  if (!entry?.id || !entry.grade || entry.search || revealed.has(entry.id)) return
+  if (!entry?.id || !entry.grade || revealed.has(entry.id)) return
   revealed.add(entry.id)
   const d=displayGrade(entry),k=d.key
-  if (!prefs.effects || !prefs.cinematic || !['illegalBrilliant','illegalMate','winning'].includes(k)) return
+  if (!prefs.effects || !prefs.cinematic || !['brilliant','illegalBrilliant','illegalMate','winning'].includes(k)) return
   const {title,mark}=d
   board.querySelector('.grade-cinematic')?.remove()
   const overlay = document.createElement('div')
@@ -329,19 +331,23 @@ function paintReview(){
   const box=$('move-review')
   box.hidden=!last
   if(last){
-    box.innerHTML=gradeChip(last)+'<div><strong>'+esc(last.by+' · '+last.text+(last.legality?' · '+last.legality.kind.toUpperCase():''))+'</strong><p>'+esc(last.search?'Stockfish is reviewing the move.':last.grade.detail+(last.legality?' '+last.legality.reason:'')+(last.grade.quality?' Tactical mark: '+grades[last.grade.quality][0]+'.':''))+'</p></div><small>'+esc(last.search?'Pending engine review':last.grade.source+(Number.isFinite(last.grade.accuracy)?' · '+last.grade.accuracy.toFixed(1)+'% expected-score retention':''))+'</small>'
+    box.innerHTML=gradeChip(last)+'<div><strong>'+esc(last.by+' · '+last.text+(last.legality?' · '+last.legality.kind.toUpperCase():''))+'</strong><p>'+esc(last.search?'Stockfish is reviewing the move.':last.grade.detail+(last.legality?' '+last.legality.reason:'')+(last.grade.quality?' Tactical mark: '+grades[last.grade.quality][0]+'.':''))+'</p></div><small>'+esc(last.search?'Instant badge locked · Stockfish review pending':'Detailed review: '+(grades[last.grade.visualKey||last.grade.key]?.[0]||last.grade.key)+' · '+last.grade.source+(Number.isFinite(last.grade.accuracy)?' · '+last.grade.accuracy.toFixed(1)+'% expected-score retention':''))+'</small>'
   }
+  const marked=prefs.marks?latestBoardGrade(game.logs):null
+  const pulseKey=badgePulseKey(marked)
+  // An engine reply must not remove/recreate a visible badge or restart its animation.
+  const existing=board.querySelector('.grade-pin,.grade-global')
+  if(marked&&existing?.dataset.badgeId===marked.id)return
   board.querySelectorAll('.grade-pin,.grade-global').forEach(pin=>pin.remove())
   board.querySelectorAll('.rated-square,.rated-origin').forEach(s=>{s.classList.remove('rated-square','rated-origin','rating-edge-top','rating-edge-right');for(const k of Object.keys(grades))s.classList.remove('grade-'+k)})
   if(!prefs.marks)return
-  const marked=latestBoardGrade(game.logs)
   if(!marked)return
   const d=displayGrade(marked)
   if(!d)return
-  const pulseKey=marked.id+':'+d.key+':'+d.pending
   const pulse=prefs.effects&&prefs.cinematic&&lastGradePulse!==pulseKey
   lastGradePulse=pulseKey
-  if(!marked.sq&&marked.fx.power){board.insertAdjacentHTML('beforeend','<div class="grade-global grade-'+d.key+(pulse?' grade-global-pulse':'')+'"><b>'+gradeGlyph(d)+'</b><span>'+esc(d.title)+'</span></div>');return}
+  const effect=badgeEffect(d.key)
+  if(!marked.sq&&marked.fx.power){board.insertAdjacentHTML('beforeend','<div data-badge-id="'+esc(marked.id)+'" class="grade-global grade-'+d.key+' badge-effect-'+effect+(pulse?' grade-global-pulse':'')+'"><b>'+gradeGlyph(d)+'</b><span>'+esc(d.title)+'</span></div>');return}
   for(const target of gradeSquares(marked)){
     const square=board.querySelector('[data-sq="'+target.sq+'"]')
     if(!square)continue
@@ -350,8 +356,8 @@ function paintReview(){
     const index=[...board.querySelectorAll('.square')].indexOf(square),size=boardSize(game)
     if(index>=0&&index<size)square.classList.add('rating-edge-top')
     if(index>=0&&index%size===size-1)square.classList.add('rating-edge-right')
-    const title=d.title+(d.pending?' · engine review pending':d.estimated?' · sandbox estimate':'')
-    square.insertAdjacentHTML('beforeend','<span class="grade-pin grade-'+d.key+(d.pending?' grade-provisional':'')+(pulse?' grade-pulse':'')+'" title="'+esc(title)+'" aria-label="'+esc(title)+'">'+gradeGlyph(d)+'</span>')
+    const title=d.title+(d.estimated?' · instant tactical estimate':'')
+    square.insertAdjacentHTML('beforeend','<span data-badge-id="'+esc(marked.id)+'" class="grade-pin grade-'+d.key+' badge-effect-'+effect+(pulse?' grade-pulse':'')+'" title="'+esc(title)+'" aria-label="'+esc(title)+'">'+gradeGlyph(d)+'</span>')
   }
 }
 
@@ -1028,8 +1034,8 @@ function showHistory() {
       '</b>'
     if (!entry.grade) return '<li>' + line + '</li>'
     const detail = entry.search
-      ? 'Stockfish is analyzing this position.'
-      : entry.grade.detail + ' · ' + entry.grade.source+(entry.legality?' · '+entry.legality.kind.toUpperCase()+': '+entry.legality.reason:'')+(entry.grade.quality?' · Tactical mark: '+grades[entry.grade.quality][0]:'')
+      ? 'Instant badge locked. Stockfish is analyzing this position.'
+      : 'Detailed review: '+(grades[entry.grade.visualKey||entry.grade.key]?.[0]||entry.grade.key)+' · '+entry.grade.detail + ' · ' + entry.grade.source+(entry.legality?' · '+entry.legality.kind.toUpperCase()+': '+entry.legality.reason:'')+(entry.grade.quality?' · Tactical mark: '+grades[entry.grade.quality][0]:'')
     return (
       '<li><details data-entry="' +
       esc(entry.id) +
@@ -1058,7 +1064,7 @@ function showHelp() {
     ],
     [
       'Move review',
-      'Stockfish compares ordinary moves with its best line. A brilliant move offers material while keeping a strong evaluation. Move Tracker automatically reviews every completed move by either side. Dots and capture rings are legal destinations even for custom pieces; off-target moves get illegal variants. Stockfish reviews compatible legal positions, while legal custom moves use ordinary rating colors with a sandbox estimate. Powers retain distinct event marks and a tactical assessment. Sandbox estimates are labeled separately from verified engine grades. Brilliant engine grades require an engine-supported sacrifice. Illegal tactical ratings are sandbox estimates. Special powers have unique event marks for summoning, time, reality, void, fusion, protection and more. A small built-in opening book identifies common known opening moves. Open Move history for both sides’ grades.',
+      'Stockfish compares ordinary moves with its best line. A brilliant move offers material while keeping a strong evaluation. Move Tracker automatically reviews every completed move by either side. An instant badge is locked when the move happens; later Stockfish analysis appears separately and never changes the badge. Dots and capture rings are legal destinations even for custom pieces; off-target moves get illegal variants. Stockfish reviews compatible legal positions, while legal custom moves use ordinary rating colors with a sandbox estimate. Powers retain distinct event marks and a tactical assessment. Sandbox estimates are labeled separately from verified engine grades. Brilliant engine grades require an engine-supported sacrifice. Illegal tactical ratings are sandbox estimates. Special powers have unique event marks for summoning, time, reality, void, fusion, protection and more. A small built-in opening book identifies common known opening moves. Open Move history for both sides’ grades.',
     ],
     [
       'Move anywhere',

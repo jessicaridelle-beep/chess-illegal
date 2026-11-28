@@ -222,12 +222,24 @@ export function engineGrade(search, answer) {
   return result('blunder','A major loss of expected score.'+explanation)
 }
 
-export function displayGrade(entry){
+// One immutable presentation snapshot per action; later engine analysis is independent.
+export function lockBadge(entry){
   if(!entry?.grade)return null
+  if(entry.badge)return entry.badge
   const key=entry.grade.visualKey||entry.grade.key
   const [title,mark]=grades[key]||grades.sandbox
-  return {key,title,mark,estimated:entry.grade.key==='sandbox'&&!entry.grade.powerCategory,pending:!!entry.search,power:entry.grade.powerCategory||null}
+  return entry.badge={key,title,mark,estimated:entry.grade.key==='sandbox'&&!entry.grade.powerCategory,pending:false,power:entry.grade.powerCategory||null}
 }
+export function displayGrade(entry){return lockBadge(entry)}
+export function badgeEffect(key){
+  if(['brilliant','illegalBrilliant','winning','illegalMate'].includes(key))return 'spectacular'
+  if(['blunder','illegalBlunder','mistake','illegalMistake','miss','illegalMiss'].includes(key))return 'impact'
+  if(['best','great','illegalGreat','illegalBest','excellent','illegalExcellent'].includes(key))return 'spark'
+  if(['void','reality','time','chaos','fusion','customPower','divine','summon','conversion','destruction'].includes(key))return 'power'
+  return 'standard'
+}
+export function badgePulseKey(entry){return entry?.id&&entry.grade?entry.id+':'+lockBadge(entry).key:null}
+
 export const illegalPowerGrades={"flip":"reality","expand":"reality","lock":"reality","rewind":"time","freeze":"time","double":"time","hole":"void","spawn":"summon","clone":"summon","echo":"summon","mirror":"summon","replicate":"summon","merge":"fusion","transform":"fusion","immortal":"divine","immunity":"divine","decree":"divine","blessing":"divine","convert":"conversion","dominion":"conversion","radiance":"conversion","destroy":"destruction","delete":"destruction","nova":"chaos","shockwave":"chaos","beam":"chaos","diagonal":"chaos","comet":"chaos","consume":"chaos","phase":"illegalMove","exchange":"illegalMove","leap":"illegalMove","control":"illegalMove","sidestep":"illegalMove"}
 export function classifyAction(before,action,actor){
   if(action.power)return {kind:'power',reason:'Sandbox ability: '+action.power}
@@ -271,7 +283,7 @@ export function trackerSummary(logs){
     const kind=entry.legality?.kind
     if(['legal','illegal','power'].includes(kind))out[kind]++
     if(entry.search)out.pending++
-    else if(['brilliant','illegalBrilliant'].includes(entry.grade.visualKey||entry.grade.key))out.brilliant++
+    if(['brilliant','illegalBrilliant'].includes(lockBadge(entry)?.key))out.brilliant++
   }
   return out
 }

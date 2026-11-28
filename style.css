@@ -1567,3 +1567,18 @@ input[type='checkbox'] {
 .grade-illegalInaccuracy{--grade-bg:#d5a448;--grade-fg:#fff}
 .grade-illegalMiss{--grade-bg:#c563a0;--grade-fg:#fff}
 .tracker-status{font-size:.76rem;color:#b9c9c7;line-height:1.5;margin:6px 0;overflow-wrap:anywhere}
+
+/* Instant, immutable badges: each action gets exactly one entrance animation. */
+@media (prefers-reduced-motion:no-preference){
+ .square.rated-square .grade-pin:not(.grade-pulse){animation:none}
+ .square.rated-square .grade-pin.grade-pulse.badge-effect-spectacular{animation:instant-brilliant .42s cubic-bezier(.16,1.3,.3,1) both}
+ .grade-pin.grade-pulse.badge-effect-spectacular::after{animation:instant-wave .7s ease-out both}
+ .square.rated-square .grade-pin.grade-pulse.badge-effect-impact{animation:instant-impact .32s ease-out both}
+ .grade-pin.grade-pulse.badge-effect-impact::after{animation:instant-wave .45s ease-out both}
+ .square.rated-square .grade-pin.grade-pulse.badge-effect-spark{animation:instant-star .34s cubic-bezier(.2,1.4,.4,1) both}
+ .grade-pin.grade-pulse.badge-effect-power::after{animation:instant-wave .7s ease-out both}
+ @keyframes instant-brilliant{0%{scale:.35;opacity:0;filter:brightness(1.7)}60%{scale:1.28;opacity:1;filter:brightness(1.3)}100%{scale:1;opacity:1;filter:none}}
+ @keyframes instant-impact{0%{scale:1.35;rotate:-12deg;opacity:.5}45%{scale:.9;rotate:7deg;opacity:1}100%{scale:1;rotate:0deg;opacity:1}}
+ @keyframes instant-star{0%{scale:.4;rotate:-25deg;opacity:0}65%{scale:1.18;rotate:6deg;opacity:1}100%{scale:1;rotate:0deg;opacity:1}}
+ @keyframes instant-wave{0%{scale:1;opacity:.95;border-width:2px}100%{scale:2.4;opacity:0;border-width:1px}}
+}
