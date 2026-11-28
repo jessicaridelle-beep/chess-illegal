@@ -58,3 +58,14 @@ export function burstEdit(board,entry,grade,effect){
   board.append(layer);setTimeout(()=>layer.remove(),950)
   return true
 }
+
+// Ambient tint follows a rendered badge, not an animation timer.
+export function badgeTintState(badge,enabled=true){
+  return enabled&&badge?.key?{active:true,color:editColor(badge.key)}:{active:false,color:'transparent'}
+}
+export function syncBadgeTint(layer,badge,enabled=true,color=null){
+  if(!layer)return
+  const state=badgeTintState(badge,enabled)
+  if(state.active)layer.style.setProperty('--badge-tint',color||state.color)
+  layer.dataset.active=String(state.active)
+}

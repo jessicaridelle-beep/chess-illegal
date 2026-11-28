@@ -1673,3 +1673,8 @@ input[type='checkbox'] {
 @keyframes finale-chunk{0%{opacity:0;transform:none}3%{opacity:1}70%{opacity:1}100%{opacity:0;transform:translate(var(--cx),var(--cy)) rotate(var(--cr)) scale(.8)}}
 @keyframes finale-chip{0%{opacity:0;transform:none}10%{opacity:1}100%{opacity:0;transform:translate(var(--cx),var(--cy)) rotate(var(--cr)) scale(.65)}}
 @media(prefers-reduced-motion:reduce){.finale-layer{display:none!important}}
+
+/* Persistent ambient color grade. A low-opacity viewport overlay leaves pieces and controls readable. */
+#badge-tint{position:fixed;inset:0;z-index:1000;pointer-events:none;opacity:0;background-color:var(--badge-tint,transparent);transition:opacity 220ms ease,background-color 260ms ease;contain:strict}
+#badge-tint[data-active="true"]{opacity:.075}
+@media(prefers-reduced-motion:reduce){#badge-tint{transition:none}}
