@@ -69,7 +69,7 @@ export function stockfishMove(fen, level, allowed) {
 const ROOT_GO='go depth 16 movetime 1250',MIN_DEPTH=9,MAX_CACHE=48
 const roots=new Map(),focused=new Map()
 let prediction=null,focusPrediction=null
-const diagnostics={cacheHits:0,parallelChecks:0,predictions:0}
+const diagnostics={cacheHits:0,parallelChecks:0,predictions:0,alternativeChecks:0,reviewWorkers:3}
 const uciValid=m=>/^[a-h][1-8][a-h][1-8][qrbn]?$/.test(m)
 function trimCache(cache){
   for(const [key,item] of cache){if(cache.size<=MAX_CACHE)break;if(item.done)cache.delete(key)}
@@ -114,37 +114,37 @@ export function compareMove(fen,played,alternatives=[]){
   if(!uciValid(played))return {result:Promise.resolve(null),cancel:()=>{}}
   const cached=getCachedComparison(fen,played,valid)
   if(cached)return {result:Promise.resolve(cached),cancel:()=>{}}
-  let cancelled=false,extra=null
+  let cancelled=false
   const root=rootSearch(fen,valid.length+1);root.users++
   if(prediction!==root)cancelIdle(prediction)
   const focus=focusPrediction?.fen===fen&&focusPrediction.moves.includes(played)?focusPrediction:null
   if(!focus)cancelIdle(focusPrediction)
   const playedJob=focus||focusedSearch(fen,[played]);playedJob.users++;diagnostics.parallelChecks++
+  // Third reviewer starts immediately instead of waiting for the best-move search.
+  // Search only alternatives to the actual move, using one PV and the same search budget.
+  const rootKnown=root.done&&root.value?.score
+  const needAlt=valid.length&&(!rootKnown||root.value.move===played&&!root.value.lines?.some(x=>x.move!==played))
+  const alternativeJob=needAlt?engineJob([{fen,go:ROOT_GO+' searchmoves '+valid.join(' ')}],20,([x])=>x):null
+  if(alternativeJob)diagnostics.alternativeChecks++
   const result=(async()=>{
     const best=await root.result
-    if(cancelled||!best?.score)return null
+    if(cancelled||!best?.score||!uciValid(best.move))return null
     let comparison=cachedComparison(best,played)
     if(!comparison){
       const answer=await playedJob.result
       if(cancelled)return null
-      let chosen=lineFor(answer,played)
-      if(!chosen?.score){
-        extra=engineJob([{fen,go:ROOT_GO+' searchmoves '+played}],20,([x])=>x)
-        const x=await extra.result
-        if(cancelled||x?.move!==played||!x.score)return null
-        chosen={move:played,score:x.score}
-      }
+      const chosen=lineFor(answer,played)
+      if(!chosen?.score)return null
       comparison={best:{move:best.move,score:best.score},actual:chosen,alternative:best.move!==played?{move:best.move,score:best.score}:best.lines?.find(x=>x.move!==played)||null}
     }
     if(comparison.best.move===played&&!comparison.alternative&&valid.length){
-      extra=engineJob([{fen,go:ROOT_GO+' searchmoves '+valid.join(' ')}],20,([x])=>x)
-      const alt=await extra.result
+      const alt=await alternativeJob?.result
       if(cancelled)return null
-      if(alt?.score)comparison.alternative={move:alt.move,score:alt.score}
+      if(alt?.score&&valid.includes(alt.move))comparison.alternative={move:alt.move,score:alt.score}
     }
     return cancelled?null:comparison
-  })().catch(()=>null).finally(()=>{root.users--;playedJob.users--;cancelIdle(playedJob)})
-  return {result,cancel:()=>{cancelled=true;extra?.cancel();if(root.users===1&&!root.done)root.job.cancel();if(playedJob.users===1&&!playedJob.done)playedJob.job.cancel()}}
+  })().catch(()=>null).finally(()=>{root.users--;playedJob.users--;cancelIdle(root);cancelIdle(playedJob);alternativeJob?.cancel()})
+  return {result,cancel:()=>{cancelled=true;alternativeJob?.cancel();if(root.users===1&&!root.done)root.job.cancel();if(playedJob.users===1&&!playedJob.done)playedJob.job.cancel()}}
 }
 
 export function brilliantHunterMove(fen,allowed){

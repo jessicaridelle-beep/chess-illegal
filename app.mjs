@@ -1,6 +1,7 @@
+import { actionHold, delayForPresentation, extendPresentation, preparedRatingMatches } from './presentation.mjs?v=tempo-28'
 import { isMate, isBrilliant, playFinale } from './finale.mjs?v=finale-27'
 import { paintEditPaths, clearEditPaths, burstEdit, editPaths } from './editfx.mjs?v=glow-26'
-import { describeEffect, effectDuration, unlockSound, playEffectSound, renderEffects, playFinaleSound } from './effects.mjs?v=finale-27'
+import { describeEffect, effectDuration, unlockSound, playEffectSound, renderEffects, playFinaleSound } from './effects.mjs?v=tempo-28'
 import { icon, names, abilities, powers, originals, pieceArt, pieceAbilities, movementDescription, passiveAbilities, areaAbilities, escapeHtml as esc } from './ui.mjs?v=boss-11'
 import {
   fresh,
@@ -25,7 +26,7 @@ import {
   convertPiece,
   boardSize, boardFiles, boardRanks, allSquares, expandBoard, blackHole, xy, legalBotTrial, sandboxNoMove, clonePiece, toggleImmortality, freezeBot, toggleRealityLock, consumeBotFreeze, godTrial, godPower,
 } from './game.mjs?v=evolution-24'
-import { stockfishMove, compareMove, brilliantHunterMove, preanalyzePosition, analysisStats, getCachedComparison } from './engine.mjs?v=evolution-24'
+import { stockfishMove, compareMove, brilliantHunterMove, preanalyzePosition, analysisStats, getCachedComparison } from './engine.mjs?v=tempo-28'
 import { grades, reviewAction, engineGrade, displayGrade, latestBoardGrade, gradeSquares, trackerSummary, nextTrackerReview, classifyAction, lockBadge, badgeEffect, badgePulseKey, waitingForRating, finishRating } from './review.mjs?v=evolution-24'
 const $ = (id) => document.getElementById(id),
   modal = $('modal'),
@@ -67,6 +68,7 @@ let mode = 'move',
   storageIssue = false
 let lastGradePulse=null,lastEditBurst=game.logs.at(-1)?.id
 let lastFinale=game.logs.at(-1)?.id,finaleUntil=0,finaleResultTimer=null
+let presentationUntil=0,presentationTimer=null
 let lastAnimated = game.logs.at(-1)?.id, annotations = [], arrowStart = null, revealed = new Set(game.logs.filter(x=>!x.search).map(x=>x.id))
 const catalog = () => [...originals, ...custom]
 const label = (t) => names[t] || catalog().find((x) => x.id === t)?.name || 'Custom piece'
@@ -108,15 +110,27 @@ function updateFlipCooldown(){
   if(status&&status.textContent!==detail)status.textContent=detail
   const hole=$('duel-hole-cooldown');if(hole){const seconds=Math.ceil(blackHoleRemaining(game)/1000),actions=blackHoleActionGap(game);const label='Black Hole · '+(seconds||actions?[seconds?seconds+'s':'',actions?actions+' intervening actions':''].filter(Boolean).join(' + '):'Ready');if(hole.textContent!==label)hole.textContent=label}
 }
+const presenting=()=>Date.now()<presentationUntil
+const nextDelay=base=>delayForPresentation(Date.now(),Math.max(presentationUntil,finaleUntil),base)
+function lockPresentation(duration){
+  if(!duration)return
+  presentationUntil=extendPresentation(Date.now(),presentationUntil,duration)
+  clearTimeout(presentationTimer)
+  presentationTimer=setTimeout(()=>{if(!presenting()){board.dataset.presenting='false';renderStatus()}},Math.max(0,presentationUntil-Date.now())+10)
+  board.dataset.presenting='true'
+}
+function resetPresentation(){
+  presentationUntil=finaleUntil=0;clearTimeout(presentationTimer);clearTimeout(finaleResultTimer);board.dataset.presenting='false'
+}
 function renderDuel(){
   const d=game.duel,panel=$('duel-panel')
   panel.hidden=!d
   updateFlipCooldown()
   if(!d)return
-  $('duel-state').textContent=game.result?resultTitle():waitingForRating(game.logs.at(-1))?'Reviewing last move · Stockfish':duelBusy?(isHunter(d[d.turn])?'Hunting for a brilliant move · ':'Thinking · ')+duelName(d.turn):duelRunning?'Playing · '+colorName(d.turn):'Paused · '+colorName(d.turn)+' to move'
+  $('duel-state').textContent=game.result?resultTitle():waitingForRating(game.logs.at(-1))?'Reviewing last move · Stockfish':presenting()?'Animation playing · bots waiting':duelBusy?(isHunter(d[d.turn])?'Hunting for a brilliant move · ':'Thinking · ')+duelName(d.turn):duelRunning?'Playing · '+colorName(d.turn):'Paused · '+colorName(d.turn)+' to move'
   $('duel-toggle').textContent=duelRunning?'Pause':'Resume'
   $('duel-toggle').disabled=!!game.result
-  $('duel-step').disabled=duelRunning||duelBusy||!!game.result||waitingForRating(game.logs.at(-1))
+  $('duel-step').disabled=duelRunning||duelBusy||!!game.result||presenting()||waitingForRating(game.logs.at(-1))
   $('duel-white').textContent=duelName('w')+' · '+duelProfile('w')[2]
   $('duel-black').textContent=duelName('b')+' · '+duelProfile('b')[2]
   const streak=game.bossActionStreak,anti=$('duel-repeat-status');if(anti){const kinds=(game.bossRecentActions||[]).slice(-4);anti.textContent='Anti-spam v3 · '+(bossNeedsMove(game,d.turn)&&isBoss(d[d.turn])?'Piece move required · ':'')+(kinds.length?kinds.map(k=>k==='move'?'Illegal move':k==='legal'?'Legal move':actionNames[k]||abilities[k]||k).join(' → '):'Ready')}
@@ -126,10 +140,11 @@ function scheduleDuel(){
   if(!game.duel||!duelRunning||game.result||duelBusy||waitingForRating(game.logs.at(-1)))return
   clearTimeout(timer)
   const token=epoch
-  timer=setTimeout(()=>{if(token===epoch&&duelRunning)duelStep()},Math.max(game.duel.delay||500,finaleUntil-Date.now()+30))
+  timer=setTimeout(()=>{if(token===epoch&&duelRunning)duelStep()},nextDelay(game.duel.delay||500))
 }
 async function duelStep(){
   if(!game.duel||duelBusy||game.result||waitingForRating(game.logs.at(-1)))return
+  if(presenting()){if(duelRunning)scheduleDuel();return}
   cancelBot();const token=epoch,d=game.duel,actor=d.turn,id=d[actor],p=duelProfile(actor)
   duelBusy=true;renderStatus()
   try{
@@ -150,6 +165,8 @@ async function duelStep(){
       game.result=isBoss(d[other(actor)])?{winner:null,reason:'No available action · no legal boss checkmate'}:ch?.isCheckmate()?{winner:other(actor),reason:'Checkmate'}:ch?.isStalemate()?{winner:null,reason:'Stalemate'}:sandboxNoMove(sim,[],actor)||{winner:null,reason:'No legal move'}
       duelRunning=false;return
     }
+    const prepared=await prepareBotRating(before,safe,action,actor,token)
+    if(epoch!==token)return
     undoStack.push(before);if(undoStack.length>60)undoStack.shift();redoStack=[]
     const next=isBoss(id)&&action.power==='double'?actor:other(actor)
     Object.assign(game,{b:safe.b,rights:safe.rights,ep:safe.ep,last:safe.last,size:safe.size,destroyed:safe.destroyed,bossState:safe.bossState})
@@ -158,7 +175,7 @@ async function duelStep(){
     d.turn=next;d.plies=(d.plies||0)+1
     game.result=duelAfter(game,next,actor,action,before)
     const entry=log(colorName(actor)+' · '+(action.power||isBoss(id)&&!action.normal?bossDescription(action,before,actor):label(before.b[action.from]?.t)+' '+action.from+(before.b[action.to]?' × ':' → ')+action.to+(action.promotion?' = '+label(action.promotion):'')),source)
-    annotateAction(entry,before,action,actor)
+    annotateAction(entry,before,action,actor,undefined,prepared)
     resetSelection()
     if(game.result)duelRunning=false
   }catch(err){if(epoch===token){duelRunning=false;notice='Bot match paused: '+String(err.message||err)}}
@@ -172,7 +189,7 @@ function duelDialog(){
   $('duel-start').onclick=()=>{
     const keep=$('duel-current').checked,w=$('duel-w').value,b=$('duel-b').value,delay=Number($('duel-delay').value),turn=keep?$('duel-turn').value:'w'
     prefs.editGlow=$('duel-edit-glow').checked;prefs.sound=$('duel-sound').checked;prefs.effects=$('duel-effects').checked;if(prefs.sound)unlockSound();prefs.marks=$('duel-marks').checked;prefs.cinematic=$('duel-cinematic').checked;prefs.theme=$('duel-theme').value
-    checkpoint();if(!keep)game=fresh();else beginRealityTimeline(game)
+    checkpoint();resetPresentation();if(!keep)game=fresh();else beginRealityTimeline(game)
     game.result=null;game.pending=false;game.doubleTurn=0;game.frozenTurns=0;game.checkmateImmunity=false;game.bossState={};game.evolution={};game.bossActionStreak=null;game.bossRecentActions=[];game.bossHoleUntil=0;game.realityFlipUntil=0;game.realityFlipNeedsAction=false
     game.duel={w,b,delay,turn,plies:0,half:0,positions:[duelKey(game,turn)]};game.view='w';game.side='w';spawnColor='w';mode='move';resetSelection();modal.close();duelRunning=true;save();render();scheduleDuel()
   }
@@ -291,20 +308,35 @@ async function reviewQueue() {
   }
 }
 
-function recordPly(before, action, actor, nextSide, text, by) {
+function recordPly(before, action, actor, nextSide, text, by, prepared=null) {
   game.result = game.duel?null:matchOutcome(before, game, actor===game.side && game.doubleTurn ? actor : nextSide)
   if(!game.duel&&isBoss(prefs.bot)&&game.result?.winner===other(game.side)&&bossInfo(game,other(game.side)).turns<BOSS_GRACE)game.result=null
   if(!game.duel&&isBoss(prefs.bot)&&game.result?.winner===game.side&&bossInfo(game,other(game.side)).immune&&bossHasRoyal(game,other(game.side)))game.result=null
   const entry = log(text, by)
   const assessment = reviewAction(before, game, action, actor, game.result)
-  annotateAction(entry,before,action,actor,assessment)
+  annotateAction(entry,before,action,actor,assessment,prepared)
 }
-function annotateAction(entry,before,action,actor,assessment=reviewAction(before,game,action,actor,game.result)){
+// Analyze a chosen bot move while it is still off-screen. Publish only one immutable rating.
+async function prepareBotRating(before,after,action,actor,token){
+  if(action.power||action.hunterGrade||!orthodox(before,actor))return null
+  const assessment=reviewAction(before,after,action,actor,null),search=assessment.search
+  if(!search)return null
+  const cached=getCachedComparison(search.fen,search.played,search.alternatives)
+  if(cached)return {fen:search.fen,played:search.played,grade:engineGrade(search,cached)}
+  const job=compareMove(search.fen,search.played,search.alternatives)
+  engine=job
+  const answer=await job.result
+  if(epoch!==token)return null
+  if(engine===job)engine=null
+  return {fen:search.fen,played:search.played,grade:answer?engineGrade(search,answer):{key:'unrated',detail:'Stockfish review unavailable; no rating was guessed.',source:'Engine unavailable'}}
+}
+function annotateAction(entry,before,action,actor,assessment=reviewAction(before,game,action,actor,game.result),prepared=null){
   const opponent=game.duel?game.duel[other(actor)]:actor===game.side?prefs.bot:null
   observeEvolution(game,actor,action,before,assessment.legality?.kind,opponent)
   const sq=action.to||action.from||null
   if(action.hunterGrade?.key==='brilliant'&&assessment.search&&assessment.legality?.kind==='legal')assessment={grade:action.hunterGrade,legality:assessment.legality}
   Object.assign(entry,assessment,{id:crypto.randomUUID(),sq,actor,fx:describeEffect(before,game,action,assessment.legality?.kind)})
+  if(preparedRatingMatches(prepared,entry.search))finishRating(entry,prepared.grade)
   if(entry.search){const cached=getCachedComparison(entry.search.fen,entry.search.played,entry.search.alternatives);if(cached)finishRating(entry,engineGrade(entry.search,cached))}
   lockBadge(entry)
   if(entry.search)reviewQueue()
@@ -325,13 +357,13 @@ function maybeFinale(entry=game.logs.at(-1)){
   lastFinale=entry.id
   const attack=(from,to)=>movement(game.b,from,to,boardSize(game),game.destroyed||[],true)
   const duration=playFinale(board,game,entry,grade,{size:boardSize(game),view:game.view,art:(t,c)=>pieceArt(t,c,catalog()),attack,paths:editPaths(game,entry,attack)})
-  if(duration){finaleUntil=Date.now()+duration;if(prefs.sound)playFinaleSound(mate)}
+  if(duration){finaleUntil=Date.now()+duration;lockPresentation(duration);if(prefs.sound)playFinaleSound(mate)}
 }
 function showResultAfterFinale(){
   const result=game.result,id=game.logs.at(-1)?.id
   if(!result)return
   clearTimeout(finaleResultTimer)
-  const wait=Math.max(0,finaleUntil-Date.now())
+  const wait=Math.max(0,Math.max(finaleUntil,presentationUntil)-Date.now())
   if(!wait){showResult();return}
   finaleResultTimer=setTimeout(()=>{if(game.result===result&&game.logs.at(-1)?.id===id&&!modal.open)showResult()},wait+30)
 }
@@ -375,7 +407,7 @@ function gradeGlyph(d){
 }
 function paintReview(){
   const last=[...game.logs].reverse().find(item=>item.grade),summary=trackerSummary(game.logs)
-  const status=$('tracker-status');if(status)status.textContent='Move Tracker · '+summary.tracked+' tracked · '+summary.legal+' legal · '+summary.illegal+' illegal · '+summary.power+' powers · '+summary.pending+' pending · '+analysisStats().cacheHits+' cached reviews'
+  const status=$('tracker-status');if(status)status.textContent='Move Tracker · '+summary.tracked+' tracked · '+summary.legal+' legal · '+summary.illegal+' illegal · '+summary.power+' powers · '+summary.pending+' pending · '+analysisStats().cacheHits+' cached reviews · up to '+analysisStats().reviewWorkers+' parallel reviewers'
   const box=$('move-review')
   box.hidden=!last
   if(last){
@@ -397,6 +429,7 @@ function paintReview(){
   lastGradePulse=pulseKey
   const effect=badgeEffect(d.key)
   const latest=game.logs.at(-1)?.id===marked.id
+  if(pulse&&latest&&!globalThis.matchMedia?.('(prefers-reduced-motion: reduce)').matches)lockPresentation(1000)
   const editOn=prefs.editGlow&&prefs.effects&&latest
   if(editOn)paintEditPaths(board,game,marked,d,(from,to)=>movement(game.b,from,to,boardSize(game),game.destroyed||[],true))
   const doBurst=()=>{if(editOn&&prefs.cinematic&&lastEditBurst!==marked.id){lastEditBurst=marked.id;burstEdit(board,marked,d,effect)}}
@@ -734,7 +767,7 @@ function renderBoard() {
   else if(scene)finaleUntil=0
   board.dataset.mode = mode
   paintDestinations()
-  if(animate)renderEffects(board,entry.fx,{size,view:game.view,art:(t,c)=>pieceArt(t,c,catalog()),delay:game.duel?.delay||500})
+  if(animate){lockPresentation(actionHold(entry.fx,{effects:prefs.effects,reduced:!!globalThis.matchMedia?.('(prefers-reduced-motion: reduce)').matches}));renderEffects(board,entry.fx,{size,view:game.view,art:(t,c)=>pieceArt(t,c,catalog()),delay:game.duel?.delay||500})}
   paintAnnotations()
 }
 function paintAnnotations() {
@@ -819,7 +852,7 @@ function renderStatus() {
   const checked = threatenedKings(game,catalog())
   const ownCheck = checked.some(sq=>game.b[sq].c===game.side)
   const enemyCheck = checked.some(sq=>game.b[sq].c!==game.side)
-  $('turn').textContent = game.result ? resultTitle() : game.pending ? 'Bot thinking…' : game.frozenTurns>0 ? 'Bot frozen · '+game.frozenTurns+' turns' : game.doubleTurn ? 'Double turn armed' : game.checkmateImmunity?'Checkmate immunity active':ownCheck ? 'Your king in check!' : enemyCheck ? 'Enemy king in check!' : 'Your turn'
+  $('turn').textContent = game.result ? resultTitle() : game.pending ? (presenting()?'Animation playing · bot waiting':'Bot thinking…') : game.frozenTurns>0 ? 'Bot frozen · '+game.frozenTurns+' turns' : game.doubleTurn ? 'Double turn armed' : game.checkmateImmunity?'Checkmate immunity active':ownCheck ? 'Your king in check!' : enemyCheck ? 'Enemy king in check!' : 'Your turn'
   $('turn').parentElement.classList.toggle('check-turn', !!checked.length && !game.result)
   $('match-result').hidden = !game.result
   if (game.result) $('result-summary').textContent = resultTitle() + ' · ' + game.result.reason
@@ -893,6 +926,7 @@ function render() {
 }
 async function botMove(token) {
   if (epoch !== token || !game.pending || game.result) return
+  if(presenting()||waitingForRating(game.logs.at(-1))){scheduleBot();return}
   if(isBoss(prefs.bot))return bossTurn(token)
   if(consumeBotFreeze(game)){game.pending=false;game.botFollowup=false;log('Time freeze · bot skips turn ('+game.frozenTurns+' remaining)');notice='Bot turn skipped';save();render();return}
   const c = other(game.side), followup=false,
@@ -931,6 +965,8 @@ async function botMove(token) {
     const before={...game,b:{...game.b}}, {from,to,promotion,power}=action, p=game.b[from], q=game.b[to]
     const safe=prefs.bot==='gpt'?godTrial(game,action,c,catalog()):legalBotTrial(game,action,c,catalog())
     if(safe){
+      const prepared=await prepareBotRating(before,safe,action,c,token)
+      if(epoch!==token)return
       Object.assign(game,safe)
       markRealityAction(game,power||'move')
       extra=false
@@ -944,7 +980,7 @@ async function botMove(token) {
       if(power==='flip'){
         spawnColor=game.side;annotations=[]
         annotateAction(log('Reality flip · you now play '+colorName(game.side),by),before,{power:'flip'},c)
-      }else recordPly(before,action,c,extra?c:game.side,description,by)
+      }else recordPly(before,action,c,extra?c:game.side,description,by,prepared)
     }else{pass='Bot action rejected';log(pass,by)}
   }else{log(pass,by);if(!followup&&game.botCooldown>0)game.botCooldown--}
   game.botFollowup=extra&&!game.result
@@ -970,11 +1006,13 @@ async function bossTurn(token){
   if(epoch!==token)return
   if(!chosen||!canBossRepeat(game,actor,bossActionKind(chosen.action))){game.pending=false;notice='Boss has no available action';save();render();return}
   const action=chosen.action
+  const prepared=await prepareBotRating(before,chosen.state,action,actor,token)
+  if(epoch!==token)return
   Object.assign(game,chosen.state)
   const count=bossInfo(game,actor).turns
   game.result=count>=BOSS_GRACE?bossOutcome(game,actor,catalog(),action,before):null
   const entry=log(bossDescription(action,before,actor),botTitle()+(id==='illegal'&&suggestion?' · Stockfish-assisted':''))
-  annotateAction(entry,before,action,actor)
+  annotateAction(entry,before,action,actor,undefined,prepared)
   const extra=action.power==='double'||bossConsumeFreeze(game,game.side)
   game.pending=!!(extra&&!game.result)
   resetSelection();notice=count<BOSS_GRACE?'Boss grace period · '+count+'/'+BOSS_GRACE+' moves':extra?'Boss takes another turn':''
@@ -992,7 +1030,7 @@ function scheduleBot() {
       save()
       render()
     })
-  }, Math.max(440,finaleUntil-Date.now()+30))
+  }, nextDelay(440))
 }
 function restore(direction) {
   const back = direction === 'undo',
@@ -1004,7 +1042,7 @@ function restore(direction) {
   destination.push(clone(game))
   game = source.pop()
   lastAnimated=lastSounded=lastEditBurst=lastFinale=game.logs.at(-1)?.id
-  finaleUntil=0;clearTimeout(finaleResultTimer)
+  resetPresentation()
   if(!game.realityTimeline)beginRealityTimeline(game)
   if(game.duel){game.pending=false;duelRunning=false;duelBusy=false}
   spawnColor = game.side
@@ -1250,6 +1288,7 @@ function newGame() {
   $('start').onclick = () => {
     readBotFields()
     checkpoint()
+    resetPresentation()
     game = fresh()
     game.side = $('new-side').value
     game.view = game.side
@@ -1472,7 +1511,7 @@ $('rotate').onclick = () => {
   render()
 }
 $('help').onclick = showHelp
-$('result-details').onclick = showResult
+$('result-details').onclick = showResultAfterFinale
 $('settings').onclick = settings
 $('bot-config').onclick = settings
 $('new').onclick = newGame

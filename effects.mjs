@@ -32,7 +32,7 @@ export function describeEffect(before,after,action,legal){
   }
   return {from,to,power,capture:victims.length>0,promotion:!!promotion,travel,victims:victims.slice(0,4),captureCount:victims.length}
 }
-export function effectDuration(delay=500){return Math.max(100,Math.min(240,Math.round(delay*.72)))}
+export function effectDuration(delay=500){return Math.max(420,Math.min(520,Math.round(delay*.85)))}
 const powerGroups={hole:'void',rewind:'time',freeze:'time',double:'time',flip:'reality',expand:'reality',lock:'reality',control:'reality',exchange:'reality',phase:'reality',spawn:'summon',clone:'summon',echo:'summon',replicate:'summon',mirror:'summon',merge:'fusion',transform:'fusion',convert:'convert',radiance:'convert',dominion:'convert',immortal:'shield',immunity:'shield',decree:'shield',blessing:'shield',delete:'impact',destroy:'impact',nova:'impact',shockwave:'impact',beam:'impact',diagonal:'impact',comet:'impact',consume:'impact',leap:'leap'}
 export function soundKind(fx){return fx?.power?powerGroups[fx.power]||'reality':fx?.capture?'capture':fx?.promotion?'summon':'move'}
 let audio=null,noiseBuffer=null
