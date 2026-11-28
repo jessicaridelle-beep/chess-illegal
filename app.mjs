@@ -1,4 +1,4 @@
-import {initLocalFilm,localFilm} from './local-film.mjs?v=41'
+import {initLocalFilm,localFilm} from './local-film.mjs?v=42'
 import {initReferenceArt} from './reference-art.mjs?v=cinema-39'
 import { promotedPiece, playPromotion, startPromotionAftermath, clearPromotionAftermath, syncPromotionAftermath } from './promotion.mjs?v=cinema-40'
 import { initMusic } from './music.mjs?v=music-40'
