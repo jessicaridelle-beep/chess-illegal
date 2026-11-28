@@ -1678,3 +1678,19 @@ input[type='checkbox'] {
 #badge-tint{position:fixed;inset:0;z-index:1000;pointer-events:none;opacity:0;background-color:var(--badge-tint,transparent);transition:opacity 220ms ease,background-color 260ms ease;contain:strict}
 #badge-tint[data-active="true"]{opacity:.075}
 @media(prefers-reduced-motion:reduce){#badge-tint{transition:none}}
+
+/* User-selected soundtrack controls, independent of the board render loop. */
+.music-panel{margin-top:12px;border:1px solid var(--line);border-radius:10px;background:var(--panel);overflow:hidden}
+.music-panel summary{cursor:pointer;padding:12px;color:var(--ink);font-weight:700}
+.music-body{padding:0 12px 12px;display:grid;gap:8px;min-width:0}
+.music-body label,.music-body p{font-size:.82rem;color:var(--muted)}
+.music-entry{display:flex;gap:8px}
+.music-entry input{min-width:0;flex:1;background:var(--bg);color:var(--ink);border:1px solid var(--line);border-radius:6px;padding:8px}
+.music-controls{display:flex;gap:12px;align-items:center;flex-wrap:wrap}
+.music-controls label{display:flex;align-items:center;gap:7px}
+.music-controls input[type="range"]{width:85px;accent-color:var(--lime)}
+.music-body audio{width:100%}
+#music-video iframe{display:block;width:100%;height:auto;aspect-ratio:16/9;min-height:200px;border:0}
+#music-panel:has(#music-video:not([hidden])){min-width:200px}
+/* Keep a loaded video player visible; the user's own pause/stop controls remain accessible. */
+.music-panel:not([open]) #music-video{display:none}

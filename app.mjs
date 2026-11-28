@@ -1,3 +1,4 @@
+import { initMusic } from './music.mjs?v=music-30'
 import { actionHold, delayForPresentation, extendPresentation, preparedRatingMatches } from './presentation.mjs?v=tempo-28'
 import { isMate, isBrilliant, playFinale } from './finale.mjs?v=finale-27'
 import { paintEditPaths, clearEditPaths, burstEdit, editPaths, syncBadgeTint } from './editfx.mjs?v=tint-29'
@@ -1567,6 +1568,7 @@ document.onkeydown = (e) => {
   if (tool) selectMode(tool)
 }
 decorate()
+initMusic($('music-panel'))
 render()
 setInterval(updateFlipCooldown,250)
 reviewQueue()
