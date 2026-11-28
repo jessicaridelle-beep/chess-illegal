@@ -1,6 +1,7 @@
-import { icon, names, abilities, powers, originals, pieceArt, pieceAbilities, movementDescription, passiveAbilities, areaAbilities, escapeHtml as esc } from './ui.mjs?v=duel-5'
+import { icon, names, abilities, powers, originals, pieceArt, pieceAbilities, movementDescription, passiveAbilities, areaAbilities, escapeHtml as esc } from './ui.mjs?v=boss-6'
 import {
   fresh,
+  isBoss, BOSS_GRACE, bossInfo, bossReply, bossOutcome, bossConsumeFreeze, bossConsumeLock, bossHasRoyal,
   isDivine, isDestroyed, mergePieces, destroySquare, toggleCheckmateImmunity,
   clone,
   files,
@@ -17,8 +18,8 @@ import {
   threatenedKings,
   convertPiece,
   boardSize, boardFiles, boardRanks, allSquares, expandBoard, blackHole, xy, legalBotTrial, sandboxNoMove, clonePiece, toggleImmortality, freezeBot, toggleRealityLock, consumeBotFreeze, godTrial, godPower,
-} from './game.mjs?v=duel-5'
-import { stockfishMove, compareMove } from './engine.mjs?v=duel-5'
+} from './game.mjs?v=boss-6'
+import { stockfishMove, compareMove } from './engine.mjs?v=boss-6'
 import { grades, reviewMove, engineGrade } from './review.mjs'
 const $ = (id) => document.getElementById(id),
   modal = $('modal'),
@@ -57,15 +58,17 @@ let mode = 'move',
 let lastAnimated = game.logs.at(-1)?.id, annotations = [], arrowStart = null, revealed = new Set(game.logs.filter(x=>!x.search).map(x=>x.id))
 const catalog = () => [...originals, ...custom]
 const label = (t) => names[t] || catalog().find((x) => x.id === t)?.name || 'Custom piece'
-const botProfiles = {"rookie":["Rookie","chaos",200,"beginner"],"cat":["Bytecat","chaos",400,"beginner"],"scout":["Scout","adaptive",650,"easy"],"architect":["Architect","adaptive",900,"easy"],"trickster":["Trickster","chaos",1200,"medium"],"guardian":["Aegis","guardian",1500,"medium"],"tactician":["Tactician","adaptive",1800,"medium"],"sentinel":["Sentinel","guardian",2000,"hard"],"adaptive":["Nexus","adaptive",2200,"hard"],"oracle":["Oracle","guardian",2500,"master"],"fishlite":["Stockfish Lite","adaptive",1200,"easy","stockfish"],"fishclub":["Stockfish Club","adaptive",1800,"medium","stockfish"],"fishstrong":["Stockfish Expert","adaptive",2600,"hard","stockfish"],"fish":["Stockfish","adaptive",3200,"master","stockfish"],"fishmax":["Stockfish Max","adaptive",3500,"max","stockfish"],"gpt":["GPT / AI GOD","guardian",9999,"master","stockfish"]}
+const botProfiles = {"rookie":["Rookie","chaos",200,"beginner"],"cat":["Bytecat","chaos",400,"beginner"],"scout":["Scout","adaptive",650,"easy"],"architect":["Architect","adaptive",900,"easy"],"trickster":["Trickster","chaos",1200,"medium"],"guardian":["Aegis","guardian",1500,"medium"],"tactician":["Tactician","adaptive",1800,"medium"],"sentinel":["Sentinel","guardian",2000,"hard"],"adaptive":["Nexus","adaptive",2200,"hard"],"oracle":["Oracle","guardian",2500,"master"],"fishlite":["Stockfish Lite","adaptive",1200,"easy","stockfish"],"fishclub":["Stockfish Club","adaptive",1800,"medium","stockfish"],"fishstrong":["Stockfish Expert","adaptive",2600,"hard","stockfish"],"fish":["Stockfish","adaptive",3200,"master","stockfish"],"fishmax":["Stockfish Max","adaptive",3500,"max","stockfish"],"gpt":["GPT / AI GOD","guardian",9999,"master","stockfish"],"owner":["OWNER","guardian","∞","max"],"illegal":["Illegal Stockfish","adaptive","ILLEGAL","max","stockfish"]}
 const isEngine=id=>botProfiles[id]?.[4]==='stockfish'
 const duelProfile=c=>botProfiles[game.duel?.[c]]||botProfiles.fish
 let duelRunning=false,duelBusy=false
 if(game.duel)game.pending=false
 const duelName=c=>duelProfile(c)[0]
-const duelOptions=()=>Object.entries(botProfiles).map(([id,p])=>[id,p[0]+' · '+p[2]+' est. Elo'])
+const duelOptions=()=>Object.entries(botProfiles).map(([id,p])=>[id,p[0]+' · '+(isBoss(id)?p[2]:p[2]+' est. Elo')])
 function duelKey(s,turn){return JSON.stringify([turn,s.rights,s.ep,s.size,(s.destroyed||[]).slice().sort(),Object.entries(s.b).sort(([a],[b])=>a.localeCompare(b))])}
 function duelAfter(s,turn,actor,action,before){
+  if(isBoss(s.duel?.[actor]))return bossInfo(s,actor).turns>=BOSS_GRACE?bossOutcome(s,actor,catalog()):null
+  if(isBoss(s.duel?.[turn])&&bossInfo(s,turn).immune&&bossHasRoyal(s,turn))return null
   const has=c=>Object.values(s.b).some(p=>p.c===c&&(p.t==='k'||p.t==='godking'||p.royal))
   if(!has(turn)&&has(actor))return {winner:actor,reason:'Last king taken'}
   const ch=orthodox(s,turn)
@@ -94,7 +97,7 @@ function renderDuel(){
   $('duel-step').disabled=duelRunning||duelBusy||!!game.result
   $('duel-white').textContent=duelName('w')+' · '+duelProfile('w')[2]
   $('duel-black').textContent=duelName('b')+' · '+duelProfile('b')[2]
-  $('duel-count').textContent=(d.plies||0)+' moves'
+  $('duel-count').textContent=(d.plies||0)+' moves'+['w','b'].filter(c=>isBoss(d[c])).map(c=>' · '+colorName(c)+' grace '+Math.min(BOSS_GRACE,bossInfo(game,c).turns)+'/'+BOSS_GRACE).join('')
 }
 function scheduleDuel(){
   if(!game.duel||!duelRunning||game.result||duelBusy)return
@@ -108,25 +111,29 @@ async function duelStep(){
   duelBusy=true;renderStatus()
   try{
     const before=clone(game), sim={...game,side:other(actor),duelMode:true}, ch=orthodox(sim,actor)
-    let action=null,source=p[0]
+    if(bossConsumeFreeze(game,actor)){d.turn=other(actor);log(colorName(actor)+' skipped by Time freeze',p[0]);return}
+    let action=null,source=p[0],bossResult=null
     if(ch&&isEngine(id)){
       const moves=ch.moves({verbose:true})
       if(moves.length){engine=stockfishMove(ch.fen(),p[3],moves);action=await engine.result;if(epoch!==token)return;engine=null}
     }
-    if(!action){action=sandboxReply(sim,[],p[3]==='max'?'master':p[3],p[1]);if(isEngine(id))source+=' · sandbox fallback'}
+    if(isBoss(id)){bossResult=bossReply(game,actor,id,catalog(),undoStack,action);action=bossResult?.action;source=p[0]+(id==='illegal'&&ch?' · Stockfish + illegal search':' · sandbox')}
+    else if(!action){action=sandboxReply(sim,[],p[3]==='max'?'master':p[3],p[1]);if(isEngine(id))source+=' · sandbox fallback'}
     if(epoch!==token)return
-    const safe=action&&legalBotTrial(sim,action,actor,[])
+    const safe=isBoss(id)?bossResult?.state:action&&legalBotTrial(sim,action,actor,[])
     if(!safe){
+      if(isBoss(id)&&bossInfo(game,actor).turns<BOSS_GRACE){d.turn=other(actor);log('Grace period · no allowed move',source);return}
       game.result=ch?.isCheckmate()?{winner:other(actor),reason:'Checkmate'}:ch?.isStalemate()?{winner:null,reason:'Stalemate'}:sandboxNoMove(sim,[],actor)||{winner:null,reason:'No legal move'}
       duelRunning=false;return
     }
     undoStack.push(before);if(undoStack.length>60)undoStack.shift();redoStack=[]
-    const next=other(actor)
-    Object.assign(game,{b:safe.b,rights:safe.rights,ep:safe.ep,last:safe.last})
+    const next=isBoss(id)&&action.power==='double'?actor:other(actor)
+    Object.assign(game,{b:safe.b,rights:safe.rights,ep:safe.ep,last:safe.last,size:safe.size,destroyed:safe.destroyed,bossState:safe.bossState})
+    if(!isBoss(id))bossConsumeLock(game,actor)
     d.turn=next;d.plies=(d.plies||0)+1
     game.result=duelAfter(game,next,actor,action,before)
-    const entry=log(colorName(actor)+' · '+label(before.b[action.from].t)+' '+action.from+(before.b[action.to]?' × ':' → ')+action.to+(action.promotion?' = '+label(action.promotion):''),source)
-    Object.assign(entry,{id:crypto.randomUUID(),sq:action.to,fx:{from:action.from,to:action.to,capture:!!before.b[action.to],promotion:!!action.promotion}})
+    const entry=log(colorName(actor)+' · '+(action.power?bossDescription(action):label(before.b[action.from]?.t)+' '+action.from+(before.b[action.to]?' × ':' → ')+action.to+(action.promotion?' = '+label(action.promotion):'')),source)
+    Object.assign(entry,{id:crypto.randomUUID(),sq:action.to,fx:{from:action.from,to:action.to,power:action.power,capture:!!before.b[action.to],promotion:!!action.promotion}})
     resetSelection()
     if(game.result)duelRunning=false
   }catch(err){if(epoch===token){duelRunning=false;notice='Bot match paused: '+String(err.message||err)}}
@@ -135,12 +142,12 @@ async function duelStep(){
 function duelDialog(){
   pauseDuel();renderStatus()
   const old=game.duel
-  dialog('Bot vs Bot','<p class="dialog-copy">Choose either bot for either color. All bots use normal moves in this mode, even AI GOD. Pause to edit the board with sandbox tools.</p><label class="form-field">White bot<select id="duel-w">'+selectOptions(duelOptions(),old?.w||'fish')+'</select></label><label class="form-field">Black bot<select id="duel-b">'+selectOptions(duelOptions(),old?.b||'fishmax')+'</select></label><label class="form-field">Move delay<select id="duel-delay">'+selectOptions([['150','Fast'],['500','Normal'],['1200','Slow'],['2500','Very slow']],String(old?.delay||500))+'</select></label><label class="check-row"><input id="duel-current" type="checkbox" '+(old?'checked':'')+'> Use current board (keep custom pieces)</label><label class="form-field">Side to move on current board<select id="duel-turn">'+selectOptions([['w','White'],['b','Black']],old?.turn||'w')+'</select></label><p class="dialog-note">Ratings are illustrative difficulty labels, not measured Elo. Stockfish variants use the bundled engine on compatible boards; other profiles use the sandbox engine.</p><div class="dialog-actions"><button class="secondary" id="duel-cancel">Cancel</button><button class="primary" id="duel-start">Start match</button></div>','duel')
+  dialog('Bot vs Bot','<p class="dialog-copy">Choose either bot for either color. Ordinary bots use normal moves. OWNER and Illegal Stockfish can use every sandbox power and cannot finish a game before their seventh move. Pause to edit the board with sandbox tools.</p><label class="form-field">White bot<select id="duel-w">'+selectOptions(duelOptions(),old?.w||'fish')+'</select></label><label class="form-field">Black bot<select id="duel-b">'+selectOptions(duelOptions(),old?.b||'fishmax')+'</select></label><label class="form-field">Move delay<select id="duel-delay">'+selectOptions([['150','Fast'],['500','Normal'],['1200','Slow'],['2500','Very slow']],String(old?.delay||500))+'</select></label><label class="check-row"><input id="duel-current" type="checkbox" '+(old?'checked':'')+'> Use current board (keep custom pieces)</label><label class="form-field">Side to move on current board<select id="duel-turn">'+selectOptions([['w','White'],['b','Black']],old?.turn||'w')+'</select></label><p class="dialog-note">Ratings are illustrative difficulty labels, not measured Elo. Stockfish variants use the bundled engine on compatible boards; other profiles use the sandbox engine.</p><div class="dialog-actions"><button class="secondary" id="duel-cancel">Cancel</button><button class="primary" id="duel-start">Start match</button></div>','duel')
   $('duel-cancel').onclick=()=>modal.close()
   $('duel-start').onclick=()=>{
     const keep=$('duel-current').checked,w=$('duel-w').value,b=$('duel-b').value,delay=Number($('duel-delay').value),turn=keep?$('duel-turn').value:'w'
     checkpoint();if(!keep)game=fresh()
-    game.result=null;game.pending=false;game.doubleTurn=0;game.frozenTurns=0;game.checkmateImmunity=false
+    game.result=null;game.pending=false;game.doubleTurn=0;game.frozenTurns=0;game.checkmateImmunity=false;game.bossState={}
     game.duel={w,b,delay,turn,plies:0,half:0,positions:[duelKey(game,turn)]};game.view='w';game.side='w';spawnColor='w';mode='move';resetSelection();modal.close();duelRunning=true;save();render();scheduleDuel()
   }
 }
@@ -242,6 +249,8 @@ async function reviewQueue() {
 
 function recordPly(before, action, actor, nextSide, text, by) {
   game.result = game.duel?null:matchOutcome(before, game, actor===game.side && game.doubleTurn ? actor : nextSide)
+  if(!game.duel&&isBoss(prefs.bot)&&game.result?.winner===other(game.side)&&bossInfo(game,other(game.side)).turns<BOSS_GRACE)game.result=null
+  if(!game.duel&&isBoss(prefs.bot)&&game.result?.winner===game.side&&bossInfo(game,other(game.side)).immune&&bossHasRoyal(game,other(game.side)))game.result=null
   const entry = log(text, by)
   const assessment = reviewMove(before, game, action, actor, game.result)
   Object.assign(entry, assessment, { id: crypto.randomUUID(), sq: action.to || action.from, fx: { from: action.from, to: action.to, power: action.power, capture: !!before.b[action.to], promotion: !!action.promotion } })
@@ -387,6 +396,7 @@ function endAction(reply = false) {
   resetSelection()
   const extra = Boolean(reply && game.doubleTurn && !game.result)
   if (extra) {game.doubleTurn--; notice='Extra turn! Make another move before the bot.'}
+  if(reply)bossConsumeLock(game,game.side)
   game.pending = Boolean(reply && !extra && prefs.auto && !game.result)
   save()
   render()
@@ -453,6 +463,7 @@ function castHole(sq) {
   endAction(true)
 }
 function selectMode(value) {
+  if(!game.duel&&bossInfo(game,game.side).lock&&value!=='move'){notice='Reality lock · your special tools are temporarily disabled.';renderStatus();return}
   if(game.duel){pauseDuel();if(['double','freeze','lock','immunity','flip'].includes(value)){notice='This turn power is only available in human vs bot mode.';renderStatus();return}}
   if (value === 'rewind') return rewindDialog()
   if(value==='immunity'&&(!game.result||game.result.winner===other(game.side)&&['Checkmate','Sandbox checkmate'].includes(game.result.reason))){checkpoint();const on=toggleCheckmateImmunity(game);if(on&&game.result)game.result=null;mode='move';log('Checkmate immunity · '+(on?'enabled':'disabled'));endAction();return}
@@ -737,9 +748,10 @@ function renderStatus() {
   if (game.result) $('result-summary').textContent = resultTitle() + ' · ' + game.result.reason
   $('bot-name').textContent = botTitle()+' ('+profile()[2]+')'
   $('bot-avatar').src = prefs.bot === 'cat' ? 'art/cat.svg' : prefs.bot === 'gpt' ? 'art/ai-god.svg' : 'art/bot.svg'
-  document.querySelector('.bot-tag').textContent = prefs.bot === 'gpt' ? 'AI GOD' : 'BOT'
+  document.querySelector('.bot-tag').textContent = isBoss(prefs.bot)?'UNRESTRICTED':prefs.bot === 'gpt' ? 'AI GOD' : 'BOT'
   const compatible = isEngine(prefs.bot) && orthodox(game, other(game.side))
   $('bot-detail').textContent = (compatible?'Stockfish':'Sandbox engine')+' · '+colorName(other(game.side))+(prefs.bot==='gpt'?' · Limited powers · '+(game.godCooldown>0?'Cooldown '+game.godCooldown:'Ready'):' · No powers')+(game.realityLock?' · Locked':'')+(game.frozenTurns>0?' · Frozen '+game.frozenTurns:'')
+  if(isBoss(prefs.bot)){const m=bossInfo(game,other(game.side));$('bot-detail').textContent=(prefs.bot==='illegal'?'Stockfish + illegal search':'Full sandbox boss')+' · '+(m.turns<BOSS_GRACE?'Grace '+m.turns+'/'+BOSS_GRACE:'Finish unlocked')}
   $('player-side').textContent = colorName(game.side) + ' pieces'
   $('player-name-label').textContent='You';$('player-rating').hidden=false
   if(game.duel){const top=other(game.view),bottom=game.view; $('bot-name').textContent=duelName(top)+' ('+duelProfile(top)[2]+')';$('bot-detail').textContent=colorName(top)+' · '+(isEngine(game.duel[top])?'Stockfish compatible':'Sandbox engine');$('player-name-label').textContent=duelName(bottom)+' ('+duelProfile(bottom)[2]+')';$('player-rating').hidden=true;$('player-side').textContent=colorName(bottom)+' bot';document.querySelector('.bot-tag').textContent='BOT';$('turn').textContent=game.result?resultTitle():colorName(game.duel.turn)+' to move'}
@@ -799,6 +811,7 @@ function render() {
 }
 async function botMove(token) {
   if (epoch !== token || !game.pending || game.result) return
+  if(isBoss(prefs.bot))return bossTurn(token)
   if(consumeBotFreeze(game)){game.pending=false;game.botFollowup=false;log('Time freeze · bot skips turn ('+game.frozenTurns+' remaining)');notice='Bot turn skipped';save();render();return}
   const c = other(game.side), followup=false,
     ch = isEngine(prefs.bot) && !followup ? orthodox(game, c) : null
@@ -860,6 +873,28 @@ async function botMove(token) {
   if (game.result) showResult()
   else if(game.botFollowup){notice='Opponent activated Double turn!';renderStatus();scheduleBot()}
   else if (dialogPage === 'history' && modal.open) showHistory()
+}
+function bossDescription(a){const title=({clone:'Cloning',immortal:'Immortality',double:'Double turn',freeze:'Time freeze',lock:'Reality lock',merge:'Reality merge',destroy:'Board destruction',immunity:'Checkmate immunity',transform:'Transform',...actionNames})[a.power]||abilities[a.power]||a.power;return a.power?(title+(a.type?' · '+label(a.type):'')+(a.size?' · '+a.size+' × '+a.size:'')+(a.steps?' · '+a.steps+' actions':'')+(a.from?' · '+a.from:'')+(a.to?' → '+a.to:'')):'Illegal move · '+a.from+' → '+a.to+(a.promotion?' = '+label(a.promotion):'')}
+async function bossTurn(token){
+  const id=prefs.bot,actor=other(game.side)
+  if(consumeBotFreeze(game)||bossConsumeFreeze(game,actor)){game.pending=false;log('Boss turn frozen',botTitle());save();render();return}
+  let suggestion=null
+  const ch=id==='illegal'?orthodox(game,actor):null
+  if(ch){const moves=ch.moves({verbose:true});if(moves.length){engine=stockfishMove(ch.fen(),'max',moves);suggestion=await engine.result;if(epoch!==token)return;engine=null}}
+  const before=clone(game)
+  const chosen=bossReply(game,actor,id,catalog(),undoStack,suggestion)
+  if(epoch!==token)return
+  if(!chosen){game.pending=false;notice='Boss has no available action';save();render();return}
+  const action=chosen.action
+  Object.assign(game,chosen.state)
+  const count=bossInfo(game,actor).turns
+  game.result=count>=BOSS_GRACE?bossOutcome(game,actor,catalog()):null
+  const entry=log(bossDescription(action),botTitle()+(id==='illegal'&&suggestion?' · Stockfish-assisted':''))
+  Object.assign(entry,{id:crypto.randomUUID(),sq:action.to||action.from,fx:{from:action.from,to:action.to,power:action.power||'illegal',capture:!!before.b[action.to],promotion:!!action.promotion}})
+  const extra=action.power==='double'||bossConsumeFreeze(game,game.side)
+  game.pending=!!(extra&&!game.result)
+  resetSelection();notice=count<BOSS_GRACE?'Boss grace period · '+count+'/'+BOSS_GRACE+' moves':extra?'Boss takes another turn':''
+  save();render();chime(true);if(game.result)showResult();else if(game.pending)scheduleBot()
 }
 function scheduleBot() {
   if(game.duel)return
@@ -1018,7 +1053,7 @@ function showHelp() {
     ['Board effects','Red highlights identify attacked kings. Right-click a square to mark it, or right-drag to draw an arrow. Customize board colors and animations in settings.'],
     [
       'Bot turns',
-      'Ordinary bots never use powers, even when controlling a custom piece. They must move legally and protect their king. Each opponent has a different estimated Elo and search strength. Only GPT (AI GOD) is an exception: up to two pawn spawns, one reality flip, and limited non-capturing sidesteps with a four-turn cooldown. It cannot check a king directly using a power. All other powers remain player-only.'
+      'Ordinary bots never use powers, even when controlling a custom piece. They must move legally and protect their king. Each opponent has a different estimated Elo and search strength. OWNER and Illegal Stockfish can move illegally and use all sandbox powers, but cannot win before seven boss moves. GPT (AI GOD) is another exception: up to two pawn spawns, one reality flip, and limited non-capturing sidesteps with a four-turn cooldown. It cannot check a king directly using a power. All other ordinary bots have no powers.'
     ],
   ]
   dialog(
@@ -1038,7 +1073,7 @@ function selectOptions(values, current) {
     .join('')
 }
 function botFields(){
-  return '<label class="form-field">Opponent · estimated Elo<select id="opponent">'+selectOptions(Object.entries(botProfiles).map(([id,p])=>[id,p[0]+' · '+p[2]+' Elo'+(id==='gpt'?' · AI GOD':'')]),prefs.bot)+'</select></label><p class="dialog-copy">Only GPT / AI GOD can use limited powers. Other bots have none. All ratings are fictional difficulty targets, not measured Elo.</p>'
+  return '<label class="form-field">Opponent · estimated Elo<select id="opponent">'+selectOptions(Object.entries(botProfiles).map(([id,p])=>[id,p[0]+' · '+p[2]+' Elo'+(id==='gpt'?' · AI GOD':'')]),prefs.bot)+'</select></label><p class="dialog-copy">OWNER and Illegal Stockfish use all powers, with a seven-boss-move grace period. GPT / AI GOD has limited powers. Other bots have none. Ratings are fictional difficulty targets, not measured Elo.</p>'
 }
 function readBotFields(){prefs.bot=$('opponent').value;prefs.level=profile()[3]}
 function settings() {
@@ -1303,6 +1338,7 @@ $('power-area').onclick = (e) => {
     )
     return
   }
+  if(!game.duel&&bossInfo(game,game.side).lock){notice='Reality lock · your abilities are temporarily disabled.';renderStatus();return}
   const kind=e.target.closest('[data-power]')?.dataset.power
   if(cmd!=='use'||p.c!==game.side||!pieceAbilities(p,catalog()).includes(kind)||passiveAbilities.includes(kind))return
   mode='move'
@@ -1354,6 +1390,8 @@ $('duel-step').onclick=()=>{if(!duelRunning)duelStep()}
 $('duel-exit').onclick=stopDuel
 const godButton = $('play-ai-god')
 if (godButton) godButton.onclick = () => { newGame(); $('opponent').value = 'gpt' }
+$('play-owner').onclick=()=>{newGame();$('opponent').value='owner'}
+$('play-illegal').onclick=()=>{newGame();$('opponent').value='illegal'}
 $('dismiss').onclick = () => modal.close()
 modal.onclick = (e) => {
   if (e.target === modal) {

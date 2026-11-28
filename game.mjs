@@ -1,5 +1,5 @@
 import { Chess, validateFen } from './vendor/chess.mjs'
-import { names, pieceAbilities, originals } from './ui.mjs?v=duel-5'
+import { names, pieceAbilities, originals } from './ui.mjs?v=boss-6'
 export const files = 'abcdefgh'
 export const ranks = [8, 7, 6, 5, 4, 3, 2, 1]
 export const other = (c) => (c === 'w' ? 'b' : 'w')
@@ -475,4 +475,127 @@ export function godPower(s,catalog=[]){
     if(v>threshold&&v>score){best=a;score=v}
   }
   return best
+}
+
+/* Unrestricted boss engine. The normal-bot legality path remains separate. */
+export const BOSS_GRACE=7
+export const isBoss=id=>id==='owner'||id==='illegal'
+export const bossInfo=(s,c)=>s.bossState?.[c]||{turns:0,freeze:0,lock:0,immune:false,used:{}}
+export const bossHasRoyal=(s,c)=>Object.values(s.b).some(p=>p.c===c&&isRoyal(p))
+function bossMeta(s,c,changes){s.bossState={...s.bossState,[c]:{...bossInfo(s,c),...changes}}}
+export function bossConsumeFreeze(s,c){const m=bossInfo(s,c);if(!m.freeze)return false;bossMeta(s,c,{freeze:m.freeze-1});return true}
+export function bossConsumeLock(s,c){const m=bossInfo(s,c);if(m.lock)bossMeta(s,c,{lock:m.lock-1})}
+export function bossOutcome(s,c,catalog=originals){
+  const enemy=other(c)
+  if(!bossHasRoyal(s,enemy))return {winner:c,reason:'Last king taken'}
+  if(bossInfo(s,enemy).immune)return null
+  const ch=orthodox(s,enemy)
+  if(ch?.isCheckmate())return {winner:c,reason:'Checkmate'}
+  if(!ch){
+    const t={...s,side:c,duelMode:false}
+    if(threatenedKings(t,catalog).some(sq=>t.b[sq].c===enemy)&&!botCandidates(t,enemy,catalog).some(a=>legalBotTrial(t,a,enemy,catalog,null)))return {winner:c,reason:'Sandbox checkmate'}
+  }
+  return null
+}
+function bossMove(s,from,to,promotion){
+  const p=s.b[from],victim=s.b[to]
+  if(!p||from===to||!allSquares(s).includes(to)||isDivine(victim))return false
+  removeRights(s,from,p);removeRights(s,to,victim)
+  delete s.b[from];s.b[to]={...p,t:promotion||p.t}
+  if(victim&&(p.t==='devourer'||p.absorbs))s.b[to].traits=[...new Set([...(p.traits||[]),...traits(victim)])]
+  s.ep='-';s.last=[from,to];return true
+}
+export function bossTrial(s,a,c,id,catalog=originals,history=[]){
+  if(!isBoss(id)||!a)return null
+  const enemy=other(c),m=bossInfo(s,c),n=copy(s),oldSide=s.side,p=s.b[a.from],q=s.b[a.to],kind=a.power||'move'
+  n.side=c;n.duelMode=false
+  if(m.lock&&a.power)return null
+  if(kind==='move'){if(p?.c!==c||!bossMove(n,a.from,a.to,a.promotion))return null}
+  else if(kind==='control'){if(p?.c!==enemy||!bossMove(n,a.from,a.to,a.promotion))return null}
+  else if(kind==='spawn'){if(!allSquares(n).includes(a.to)||q||!([...standardTypes,...catalog.map(x=>x.id)].includes(a.type)))return null;edit(n,a.to,{c,t:a.type,...(a.type==='godking'?{immortal:true}:{})})}
+  else if(kind==='delete'){if(!q||q.c!==enemy||!edit(n,a.to,null))return null}
+  else if(kind==='convert'){if(q?.c!==enemy||!convertPiece(n,a.to,c))return null}
+  else if(kind==='clone'){if(p?.c!==c||q||!clonePiece(n,a.from,a.to))return null}
+  else if(kind==='immortal'){if(q?.c!==c||q.immortal||!toggleImmortality(n,a.to))return null}
+  else if(kind==='merge'){if(!mergePieces(n,a.from,a.to,catalog))return null}
+  else if(kind==='destroy'){if(!destroySquare(n,a.to))return null}
+  else if(kind==='hole'){if(!blackHole(n,a.to))return null}
+  else if(kind==='expand'){if(!expandBoard(n,a.size))return null}
+  else if(kind==='flip'){for(const sq of Object.keys(n.b))n.b[sq]={...n.b[sq],c:other(n.b[sq].c)};n.rights='';n.ep='-';n.last=Object.keys(n.b)}
+  else if(kind==='rewind'){const prev=history.at(-a.steps);if(!prev?.b)return null;for(const k of ['b','size','rights','ep','destroyed'])n[k]=copy(prev[k]??(k==='destroyed'?[]:k==='size'?8:k==='ep'?'-':k==='rights'?'':{}));n.last=Object.keys(n.b)}
+  else if(kind==='double'){if(m.extra||m.last==='double'||m.last==='freeze')return null;bossMeta(n,c,{extra:true});n.last=[]}
+  else if(kind==='freeze'){if(m.extra||m.last==='double'||m.last==='freeze'||bossInfo(n,enemy).freeze)return null;bossMeta(n,enemy,{freeze:1});n.last=[]}
+  else if(kind==='lock'){if(bossInfo(n,enemy).lock)return null;bossMeta(n,enemy,{lock:2});n.last=[]}
+  else if(kind==='immunity'){if(m.immune)return null;bossMeta(n,c,{immune:true});n.last=[]}
+  else if(kind==='transform'){if(q?.c!==c||isDivine(q)||!catalog.some(x=>x.id===a.type))return null;if(!edit(n,a.to,{c,t:a.type,...(a.type==='godking'?{immortal:true}:{})}))return null}
+  else {if(!usePower(n,a.from,a.to,kind,catalog))return null}
+  if(!bossHasRoyal(n,c))return null
+  const turns=m.turns+1
+  // Before the seventh completed boss action, neither capture of the last royal nor a checking move is allowed.
+  if(turns<BOSS_GRACE&&(!bossHasRoyal(n,enemy)||threatenedKings(n,catalog).some(sq=>n.b[sq].c===enemy)))return null
+  if(turns<BOSS_GRACE){const ch=orthodox(n,enemy);if(ch?.isCheckmate())return null}
+  bossMeta(n,c,{turns,extra:kind==='double',last:kind,used:{...m.used,[kind]:(m.used?.[kind]||0)+1},lock:Math.max(0,m.lock-1)})
+  n.side=oldSide;n.duelMode=s.duelMode
+  return n
+}
+export function bossReply(s,c,id,catalog=originals,history=[],suggested=null){
+  const enemy=other(c),m=bossInfo(s,c),squares=allSquares(s),own=Object.entries(s.b).filter(([,p])=>p.c===c),foes=Object.entries(s.b).filter(([,p])=>p.c===enemy),empty=squares.filter(sq=>!s.b[sq]),a=[]
+  const val=p=>!p?0:isRoyal(p)?(p.t==='godking'?38:24):p.t==='overlord'?15:p.t==='devourer'?10:p.t==='fusion'?12:(values[p.t]||7)
+  const near=sq=>{const [x,y]=xy(sq);return 1-Math.max(Math.abs(x-(boardSize(s)-1)/2),Math.abs(y-(boardSize(s)-1)/2))/boardSize(s)}
+  const scoreBoard=b=>Object.values(b).reduce((v,p)=>v+(p.c===c?1:-1)*val(p),0)
+  const initial=scoreBoard(s.b),bias=kind=>1.3/(1+(m.used?.[kind]||0))
+  const add=(action,score=0)=>a.push({action,score:score+bias(action.power||'move')+Math.random()*.15})
+  if(suggested)add({from:suggested.from,to:suggested.to,promotion:suggested.promotion},4+val(s.b[suggested.to]))
+  for(const [from,p] of own){
+    for(const to of squares){if(to===from||s.b[to]?.c===c||isDivine(s.b[to]))continue;const victim=s.b[to],promotion=p.t==='p'&&Number(to.slice(1))===(c==='w'?boardSize(s):1)?'q':undefined
+      add({from,to,promotion},val(victim)*.9+near(to)-near(from)+(promotion?6:0))}
+    if(m.lock)continue
+    for(const k of pieceAbilities(p,catalog)){
+      if(['divine','supremacy','absorption','fusion'].includes(k))continue
+      const targets=powerTargets(s,from,k)
+      if(['radiance','nova','shockwave'].includes(k)){if(targets.length)add({power:k,from},targets.reduce((v,sq)=>v+val(s.b[sq]),0)*(k==='radiance'?1.5:1))}
+      else for(const to of targets)add({power:k,from,to},val(s.b[to])*.7+2)
+    }
+  }
+  if(!m.lock){
+    const types=['godking','overlord','devourer','illuminator','nova','phantom','starwalker','echo','prism','q',...catalog.filter(x=>x.id.startsWith('user-')).map(x=>x.id)]
+    const spots=empty.slice().sort((x,y)=>near(y)-near(x)).slice(0,8)
+    for(const to of spots)for(const type of types){if(type==='godking'&&own.some(([,p])=>isDivine(p)))continue;add({power:'spawn',to,type},(type==='godking'?6:type==='overlord'?5:3)+near(to))}
+    for(const [to,p] of foes){
+      add({power:'delete',to},val(p)*.8);add({power:'convert',to},val(p)*1.3);add({power:'destroy',to},val(p)*.9)
+      add({power:'hole',to},foes.filter(([sq])=>sq===to||neighbors(to,boardSize(s)).includes(sq)).reduce((v,[,p])=>v+val(p)*.6,0))
+      const [x,y]=xy(to)
+      for(const dest of squares.filter(sq=>!s.b[sq]||s.b[sq]?.c===enemy).slice(0,12))if(dest!==to)add({power:'control',from:to,to:dest},val(s.b[dest])*.8+1)
+    }
+    for(const [from,p] of own){
+      if(!p.immortal&&!isDivine(p))add({power:'immortal',to:from},2+val(p)*.12)
+      for(const to of spots.slice(0,2))add({power:'clone',from,to},Math.min(7,val(p)*.5))
+      for(const [to,q] of own.slice(0,6))if(from!==to)add({power:'merge',from,to},3)
+      if(!isRoyal(p))for(const type of ['overlord','devourer','nova','illuminator'])add({power:'transform',to:from,type},4)
+    }
+    if(boardSize(s)<16)add({power:'expand',size:boardSize(s)===8?12:16},2)
+    add({power:'flip'},Math.max(0,-initial)*1.2)
+    for(let steps=1;steps<=Math.min(5,history.length);steps++)add({power:'rewind',steps},Math.max(0,scoreBoard(history.at(-steps).b)-initial))
+    for(const kind of ['double','freeze','lock','immunity'])add({power:kind},kind==='immunity'?4:kind==='lock'?2:3)
+  }
+  a.sort((x,y)=>y.score-x.score)
+  let best=null,bestScore=-Infinity,checked=0
+  // Try the top tactical candidates plus a few of every available power, so the boss can actually use its full arsenal.
+  const groups=new Map();for(const item of a){const k=item.action.power||'move';if(!groups.has(k))groups.set(k,[]);if(groups.get(k).length<3)groups.get(k).push(item)}
+  const candidates=[...new Set([...a.slice(0,72),...Array.from(groups.values()).flat()])]
+  for(const item of candidates){
+    const t=bossTrial(s,item.action,c,id,catalog,history);if(!t)continue
+    let score=(scoreBoard(t.b)-initial)*.38+item.score
+    if(item.action.power==='spawn'||item.action.power==='clone')score-=Math.max(0,own.length-16)*.8
+    if(item.action.power==='immunity'||item.action.power==='lock'||item.action.power==='freeze'||item.action.power==='double')score+=1
+    if(id==='owner')score+=item.action.power?1.5:0
+    if(id==='illegal'&&suggested&&item.action.from===suggested.from&&item.action.to===suggested.to&&!item.action.power)score+=2
+    if(m.turns+1>=BOSS_GRACE&&!bossHasRoyal(t,enemy))score+=1000
+    if(score>bestScore){best={action:item.action,state:t};bestScore=score}
+    checked++
+  }
+  if(best)return best
+  // Exhaust the remaining candidates if the grace filter rejected the top choices.
+  for(const item of a){const t=bossTrial(s,item.action,c,id,catalog,history);if(t)return {action:item.action,state:t}}
+  return null
 }
