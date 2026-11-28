@@ -1,7 +1,8 @@
-import { promotedPiece, playPromotion } from './promotion.mjs?v=promo-35'
+import {initReferenceArt} from './reference-art.mjs?v=reference-38'
+import { promotedPiece, playPromotion } from './promotion.mjs?v=reference-38'
 import { initMusic } from './music.mjs?v=music-31'
 import { actionHold, delayForPresentation, extendPresentation, preparedRatingMatches } from './presentation.mjs?v=tempo-28'
-import { isMate, isBrilliant, isGreat, canPlayFinale, playFinale } from './finale.mjs?v=beam-37'
+import { isMate, isBrilliant, isGreat, canPlayFinale, playFinale } from './finale.mjs?v=reference-38'
 import { paintEditPaths, clearEditPaths, burstEdit, editPaths, syncBadgeTint, tacticalTrails, geometryAttack } from './editfx.mjs?v=impact-34'
 import { describeEffect, effectDuration, unlockSound, playEffectSound, renderEffects, playFinaleSound, playPromotionSound } from './effects.mjs?v=promo-35'
 import { icon, names, abilities, powers, originals, pieceArt, pieceAbilities, movementDescription, passiveAbilities, areaAbilities, escapeHtml as esc } from './ui.mjs?v=boss-11'
@@ -1619,6 +1620,7 @@ document.onkeydown = (e) => {
 }
 decorate()
 initMusic($('music-panel'))
+initReferenceArt($('reference-panel'))
 $('preview-brilliant').onclick=()=>previewFinale(false)
 $('preview-great').onclick=()=>previewFinale(false,true)
 $('preview-mate').onclick=()=>previewFinale(true,false,$('preview-finisher-piece').value)

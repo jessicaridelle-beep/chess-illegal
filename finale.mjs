@@ -1,3 +1,4 @@
+import {referenceArt,referenceMate,makeReferenceImage} from './reference-art.mjs?v=reference-38'
 // Real board-state cinematics, not a prerecorded chess position.
 export const MATE_MS=4750,BRILLIANT_MS=3200
 export const LAND_MS=1700,SHATTER_MS=2350
@@ -195,7 +196,14 @@ export function playFinale(board,state,entry,grade,{size,view,art,attack,paths,p
       node('span','finale-crack-ring',shatter)
     }
   }
-  if(mate)renderMateCutaway(layer,mateFinisher(state,entry,attack),art)
+  if(mate){
+    const match=mateFinisher(state,entry,attack),source=referenceMate(match?.attacker?.t)
+    if(source)makeReferenceImage(layer,source,'finale-reference-image finale-reference-mate','Checkmate reference artwork')
+    else renderMateCutaway(layer,match,art)
+  }else{
+    const source=referenceArt(great?'great':'brilliant')
+    if(source)makeReferenceImage(layer,source,'finale-reference-image finale-reference-grade',great?'Great move reference artwork':'Brilliant move reference artwork')
+  }
   board.append(layer)
   setTimeout(()=>layer.remove(),duration+40)
   return duration

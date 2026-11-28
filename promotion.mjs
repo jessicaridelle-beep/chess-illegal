@@ -1,3 +1,4 @@
+import {referenceArt,makeReferenceImage} from './reference-art.mjs?v=reference-38'
 // Promotion splash uses the actual promoted piece, not an assumed queen.
 export const PROMOTION_MS=2400
 const orth=[[0,-1],[1,0],[0,1],[-1,0]],diag=[[-1,-1],[1,-1],[1,1],[-1,1]]
@@ -25,6 +26,12 @@ export function playPromotion(root,piece,{art,label,preview=false,reduced=false}
   const scene=el('div','promotion-scene'+(reduced?' promotion-reduced':''),root)
   scene.style.setProperty('--promo-color',info.color);scene.style.setProperty('--promo-ms',duration+'ms')
   scene.setAttribute('role','status');scene.setAttribute('aria-label',(preview?'Preview: ':'')+'Pawn promoted to '+label(piece.t))
+  const source=referenceArt('promotion-'+piece.t)
+  if(source){
+    scene.classList.add('promotion-original')
+    makeReferenceImage(scene,source,'promotion-original-image','Promotion to '+label(piece.t))
+    return {scene,duration}
+  }
   const floor=el('div','promotion-floor',scene)
   for(let i=0;i<64;i++)el('i','promotion-tile'+((Math.floor(i/8)+i%8)%2?' promo-dark':''),floor)
   const lineup=el('div','promotion-lineup',scene)
