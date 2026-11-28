@@ -1,5 +1,5 @@
 import { Chess, validateFen } from './vendor/chess.mjs'
-import { names, pieceAbilities, originals } from './ui.mjs?v=boss-9'
+import { names, pieceAbilities, originals } from './ui.mjs?v=boss-10'
 export const files = 'abcdefgh'
 export const ranks = [8, 7, 6, 5, 4, 3, 2, 1]
 export const other = (c) => (c === 'w' ? 'b' : 'w')
@@ -503,8 +503,23 @@ export const bossFamily=kind=>({
 })[kind]||kind
 export const bossFamilyLimit=kind=>bossRepeatLimit(bossFamily(kind))
 const trailing=(items,key,map=x=>x)=>{let n=0;for(let i=items.length-1;i>=0&&map(items[i])===key;i--)n++;return n}
+export const BLACK_HOLE_COOLDOWN=20000
+export const BLACK_HOLE_ACTION_GAP=8
+export const isBossPieceMove=kind=>kind==='move'||kind==='legal'
+export const blackHoleRemaining=(s,now=Date.now())=>Math.max(0,(s.bossHoleUntil||0)-now)
+export function blackHoleActionGap(s){
+  const i=(s.bossRecentActions||[]).lastIndexOf('hole')
+  return i<0?0:Math.max(0,BLACK_HOLE_ACTION_GAP-((s.bossRecentActions||[]).length-1-i))
+}
+export function bossNeedsMove(s,c){
+  const all=s.bossRecentActions||[],mine=bossInfo(s,c).recent||[]
+  const tooMany=items=>items.slice(-4).filter(k=>!isBossPieceMove(k)).length>=3
+  return tooMany(all)||tooMany(mine)
+}
 export function canBossRepeat(s,c,kind){
   if(kind==='legal')return true
+  if(!isBossPieceMove(kind)&&bossNeedsMove(s,c))return false
+  if(kind==='hole'&&(blackHoleRemaining(s)>0||blackHoleActionGap(s)>0))return false
   const m=bossInfo(s,c),shared=s.bossActionStreak,limit=bossRepeatLimit(kind)
   const own=m.last===kind?(m.streak||1):0,global=shared?.kind===kind?(shared.count||1):0
   if(own>=limit||global>=limit)return false
@@ -520,7 +535,8 @@ export function canBossRepeat(s,c,kind){
 }
 export function markBossStreak(s,kind){
   const prev=s.bossActionStreak
-  s.bossRecentActions=[...(s.bossRecentActions||[]),kind].slice(-8)
+  s.bossRecentActions=[...(s.bossRecentActions||[]),kind].slice(-16)
+  if(kind==='hole')s.bossHoleUntil=Date.now()+BLACK_HOLE_COOLDOWN
   s.bossActionStreak=kind==='legal'?null:{kind,count:prev?.kind===kind?(prev.count||1)+1:1}
 }
 export const bossHasRoyal=(s,c)=>Object.values(s.b).some(p=>p.c===c&&isRoyal(p))
@@ -579,7 +595,7 @@ export function bossTrial(s,a,c,id,catalog=originals,history=[]){
   // Before the seventh completed boss action, neither capture of the last royal nor a checking move is allowed.
   if(turns<BOSS_GRACE&&(!bossHasRoyal(n,enemy)||threatenedKings(n,catalog).some(sq=>n.b[sq].c===enemy)))return null
   if(turns<BOSS_GRACE){const ch=orthodox(n,enemy);if(ch?.isCheckmate())return null}
-  bossMeta(n,c,{turns,extra:kind==='double',last:kind,streak:m.last===kind?(m.streak||1)+1:1,recent:[...(m.recent||[]),kind].slice(-8),used:{...m.used,[kind]:(m.used?.[kind]||0)+1},lock:Math.max(0,m.lock-1)})
+  bossMeta(n,c,{turns,extra:kind==='double',last:kind,streak:m.last===kind?(m.streak||1)+1:1,recent:[...(m.recent||[]),kind].slice(-16),used:{...m.used,[kind]:(m.used?.[kind]||0)+1},lock:Math.max(0,m.lock-1)})
   markBossStreak(n,kind)
   markRealityAction(n,kind)
   n.side=oldSide;n.duelMode=s.duelMode
@@ -611,7 +627,7 @@ export function bossReply(s,c,id,catalog=originals,history=[],suggested=null){
     for(const to of spots)for(const type of types){if(type==='godking'&&own.some(([,p])=>isDivine(p)))continue;add({power:'spawn',to,type},(type==='godking'?6:type==='overlord'?5:3)+near(to))}
     for(const [to,p] of foes){
       add({power:'delete',to},val(p)*.8);add({power:'convert',to},val(p)*1.3);add({power:'destroy',to},val(p)*.9)
-      add({power:'hole',to},foes.filter(([sq])=>sq===to||neighbors(to,boardSize(s)).includes(sq)).reduce((v,[,p])=>v+val(p)*.6,0))
+      if(canBossRepeat(s,c,'hole')){const affected=[to,...neighbors(to,boardSize(s))];const gain=foes.filter(([sq,p])=>affected.includes(sq)&&!isDivine(p)).reduce((v,[,p])=>v+val(p),0),cost=own.filter(([sq,p])=>affected.includes(sq)&&!isDivine(p)).reduce((v,[,p])=>v+val(p),0);if(gain>cost)add({power:'hole',to},(gain-cost)*.35)}
       const [x,y]=xy(to)
       for(const dest of squares.filter(sq=>!s.b[sq]||s.b[sq]?.c===enemy).slice(0,12))if(dest!==to)add({power:'control',from:to,to:dest},val(s.b[dest])*.8+1)
     }
@@ -634,6 +650,7 @@ export function bossReply(s,c,id,catalog=originals,history=[],suggested=null){
   for(const item of candidates){
     const t=bossTrial(s,item.action,c,id,catalog,history);if(!t)continue
     let score=(scoreBoard(t.b)-initial)*.38+item.score
+    if(item.action.power==='hole')score-=3
     if(item.action.power==='spawn'||item.action.power==='clone')score-=Math.max(0,own.length-16)*.8
     if(item.action.power==='immunity'||item.action.power==='lock'||item.action.power==='freeze'||item.action.power==='double')score+=1
     if(id==='owner')score+=item.action.power?1.5:0
