@@ -1,4 +1,4 @@
-import { icon, names, abilities, powers, originals, pieceArt, escapeHtml as esc } from './ui.mjs?v=reality-3'
+import { icon, names, abilities, powers, originals, pieceArt, pieceAbilities, movementDescription, passiveAbilities, areaAbilities, escapeHtml as esc } from './ui.mjs?v=reality-4'
 import {
   fresh,
   isDivine, isDestroyed, mergePieces, destroySquare, toggleCheckmateImmunity,
@@ -17,7 +17,7 @@ import {
   threatenedKings,
   convertPiece,
   boardSize, boardFiles, boardRanks, allSquares, expandBoard, blackHole, xy, legalBotTrial, sandboxNoMove, clonePiece, toggleImmortality, freezeBot, toggleRealityLock, consumeBotFreeze, godTrial, godPower,
-} from './game.mjs?v=reality-3'
+} from './game.mjs?v=reality-4'
 import { stockfishMove, compareMove } from './engine.mjs'
 import { grades, reviewMove, engineGrade } from './review.mjs'
 const $ = (id) => document.getElementById(id),
@@ -401,7 +401,7 @@ function actOn(sq) {
   if(mode==='merge'){
     if(!selected){if(game.b[sq]?.c===game.side){selected=sq;notice='Choose a second friendly piece.';render()}return}
     if(selected===sq){resetSelection();render();return}
-    const from=selected,trial=clone(game);if(!mergePieces(trial,from,sq)){notice='Choose another friendly piece.';renderStatus();return}
+    const from=selected,trial=clone(game);if(!mergePieces(trial,from,sq,catalog())){notice='Choose another friendly piece.';renderStatus();return}
     checkpoint();Object.assign(game,{b:trial.b,rights:trial.rights,ep:trial.ep,last:trial.last});const entry=log('Reality merge · '+from+' + '+sq);entry.id=crypto.randomUUID();entry.fx={power:'merge',from,to:sq};endAction();return
   }
   if(mode==='destroy'){
@@ -477,17 +477,8 @@ function actOn(sq) {
 }
 function activatePower(from, to, kind) {
   const trial = clone(game)
-  if (!usePower(trial, from, to, kind)) {
-    notice =
-      ['radiance','nova'].includes(kind)
-        ? abilities[kind] + ' needs an adjacent enemy.'
-        : kind === 'echo'
-          ? 'Choose an empty neighboring square away from the back ranks.'
-          : kind === 'beam'
-            ? 'Choose an enemy within four unobstructed straight squares.'
-        : kind === 'exchange'
-          ? 'Choose another occupied square.'
-          : 'Choose a square exactly two steps along a line.'
+  if (!usePower(trial, from, to, kind,catalog())) {
+    notice='No valid target for '+(abilities[kind]||kind)+'. '+(powers[kind]||'Choose a highlighted square.')
     renderStatus()
     return
   }
@@ -606,13 +597,20 @@ function paintDestinations() {
   }
 }
 
+function abilityCards(p,interactive=false){
+  return pieceAbilities(p,catalog()).map(k=>{
+    const passive=passiveAbilities.includes(k)
+    const active=interactive&&!passive
+    return '<div class="ability-card"><div class="ability-head"><strong>'+esc(abilities[k])+'</strong><span class="ability-type">'+(passive?'PASSIVE':'ACTIVE')+'</span></div><p>'+esc(powers[k]||'')+'</p>'+(active?'<button class="power-btn" data-special="use" data-power="'+esc(k)+'">'+icon('star',16)+(powerTarget===k?'Choose target':'Use ability')+'</button>':'')+'</div>'
+  }).join('')
+}
 function renderStatus() {
   const selectedPiece = game.b[selected]
   const hint =
     (game.result ? game.result.reason + ' · Undo to keep playing.' : '') ||
     notice ||
     (powerTarget
-      ? 'Choose a target for ' + abilities[powerTarget] + '.'
+      ? 'Choose a highlighted target for ' + abilities[powerTarget] + '. ' + powers[powerTarget]
       : mode === 'merge' ? (selectedPiece?'Choose another friendly piece to fuse.':'Select your first friendly piece.')
       : mode === 'destroy' ? 'Tap a square to permanently remove it. Undo to restore.'
       : mode === 'clone' ? selectedPiece?'Choose any destination, including occupied squares.':'Select any piece to duplicate, including kings.'
@@ -651,23 +649,8 @@ function renderStatus() {
   $('side-dot').classList.toggle('black', game.side === 'b')
   $('undo').disabled = !undoStack.length
   $('redo').disabled = !redoStack.length
-  const power = catalog().find((v) => v.id === selectedPiece?.t)?.power
-  $('power-area').innerHTML = selectedPiece
-    ? '<div class="form-row">' +
-      (power && !['divine','supremacy','absorption','fusion'].includes(power)
-        ? '<button class="power-btn" data-special="use">' +
-          icon('star', 16) +
-          'Use ' +
-          abilities[power] +
-          '</button>'
-        : '') +
-      (power&&['divine','supremacy','absorption','fusion'].includes(power)?'<span class="passive-power">'+esc(powers[power])+(selectedPiece.traits?.length?' · Inherited: '+esc(selectedPiece.traits.map(t=>names[t]||t).join(', ')):'')+'</span>':'')+
-      '<button class="power-btn" data-special="transform">' +
-      icon('rotate', 16) +
-      'Transform piece</button>' +
-      (selectedPiece.c !== game.side ? '<button class="power-btn quick-convert" data-special="convert">'+icon('convert',16)+'Convert to my side</button>' : '') +
-      '</div>'
-    : ''
+  const infoPiece=selectedPiece||(mode==='spawn'?{t:spawnType,c:spawnColor}:null)
+  $('power-area').innerHTML=infoPiece?'<section class="piece-inspector"><div class="inspector-head"><div class="art-box">'+pieceArt(infoPiece.t,infoPiece.c,catalog())+'</div><div><h3>'+esc(label(infoPiece.t))+'</h3><p>'+esc(movementDescription(infoPiece.t))+'</p>'+(infoPiece.traits?.length?'<p>Inherited movement: '+esc(infoPiece.traits.map(t=>names[t]||t).join(', '))+'</p>':'')+'</div></div>'+abilityCards(infoPiece,!!selectedPiece&&selectedPiece.c===game.side&&!game.result)+'<div class="form-row">'+(selectedPiece?'<button class="power-btn" data-special="transform">'+icon('rotate',16)+'Transform piece</button>':'')+(selectedPiece&&selectedPiece.c!==game.side?'<button class="power-btn quick-convert" data-special="convert">'+icon('convert',16)+'Convert to my side</button>':'')+'</div></section>':''
 }
 function render() {
   renderBoard()
@@ -702,7 +685,7 @@ function render() {
         colorName(spawnColor) +
         ' ' +
         label(t) +
-        '" class="' +
+        '" title="'+esc(movementDescription(t)+' '+pieceAbilities({t},catalog()).map(k=>abilities[k]+': '+powers[k]).join(' | '))+'" class="' +
         (mode === 'spawn' && spawnType === t ? 'chosen' : '') +
         '">' +
         pieceArt(t, spawnColor, catalog()) +
@@ -854,34 +837,14 @@ function piecePicker(title, description, c, onChoose) {
     )
 }
 function showLibrary() {
-  dialog(
-    'Piece library',
-    '<p class="dialog-copy">Spawn an original piece or build one with your own name, artwork, and ability.</p>' +
-      catalog()
-        .map(
-          (item) =>
-            '<article class="choice"><div class="art-box">' +
-            pieceArt(item.id, spawnColor, catalog()) +
-            '</div><div><h3>' +
-            esc(item.name) +
-            '</h3><p><b>' +
-            abilities[item.power] +
-            '</b> · ' +
-            powers[item.power] +
-            '</p></div><button class="option" data-pick="' +
-            esc(item.id) +
-            '">Spawn</button></article>',
-        )
-        .join('') +
-      '<button class="primary full" id="forge">' +
-      icon('plus', 16) +
-      'Create custom piece</button>',
-    'library',
-  )
-  $('dialog-content')
-    .querySelectorAll('[data-pick]')
-    .forEach((b) => (b.onclick = () => chooseSpawn(b.dataset.pick)))
-  $('forge').onclick = forge
+  dialog('Piece codex','<p class="dialog-copy">Inspect every custom piece. Active abilities are player-only and unlimited. Passive abilities apply automatically.</p><label class="form-field">Find a piece or ability<input id="codex-search" type="search" placeholder="Search pieces, powers, movement"></label><div class="codex-list" id="codex-list"></div><button class="primary full" id="forge">'+icon('plus',16)+'Create custom piece</button>','library')
+  function populate(){
+    const query=$('codex-search').value.trim().toLowerCase()
+    const rows=catalog().filter(item=>[item.name,movementDescription(item.id),...pieceAbilities({t:item.id},catalog()).flatMap(k=>[abilities[k],powers[k]])].join(' ').toLowerCase().includes(query))
+    $('codex-list').innerHTML=rows.map(item=>'<article class="codex-piece"><div class="inspector-head"><div class="art-box">'+pieceArt(item.id,spawnColor,catalog())+'</div><div><h3>'+esc(item.name)+'</h3><p>'+esc(movementDescription(item.id))+'</p></div></div>'+abilityCards({t:item.id})+(item.id==='fusion'?'<p class="dialog-note">Create using Reality merge.</p>':'<button class="option" data-pick="'+esc(item.id)+'">Spawn</button>')+'</article>').join('')||'<p class="dialog-note">No matching pieces.</p>'
+    $('codex-list').querySelectorAll('[data-pick]').forEach(b=>b.onclick=()=>chooseSpawn(b.dataset.pick))
+  }
+  $('codex-search').oninput=populate;populate();$('forge').onclick=forge
 }
 function showHistory() {
   const expanded = new Set(
@@ -1113,10 +1076,11 @@ function forge() {
         .join('') +
       '</div><label class="form-field">Or upload an image<input id="art-file" type="file" accept="image/png,image/jpeg,image/webp,image/gif"></label><label class="form-field">Special ability<select id="ability">' +
       selectOptions(Object.entries(abilities).filter(([id])=>!['divine','supremacy','absorption','fusion'].includes(id)), 'radiance') +
-      '</select></label><p class="dialog-note" id="power-desc"></p><p class="error" id="forge-error" role="status"></p><div class="dialog-actions"><button type="button" class="secondary" id="forge-back">Back</button><button class="primary" type="submit">Create piece</button></div></form>',
+      '</select></label><label class="form-field">Bonus ability<select id="bonus-ability">'+selectOptions([['','None'],...Object.entries(abilities).filter(([id])=>!passiveAbilities.includes(id))],'')+'</select></label><p class="dialog-note" id="power-desc"></p><p class="error" id="forge-error" role="status"></p><div class="dialog-actions"><button type="button" class="secondary" id="forge-back">Back</button><button class="primary" type="submit">Create piece</button></div></form>',
     'forge',
   )
-  const desc = () => ($('power-desc').textContent = powers[$('ability').value])
+  const desc=()=>($('power-desc').textContent=[powers[$('ability').value],powers[$('bonus-ability').value]].filter(Boolean).join(' • '))
+  $('bonus-ability').onchange=desc
   desc()
   $('ability').onchange = desc
   $('forge-back').onclick = showLibrary
@@ -1151,7 +1115,7 @@ function forge() {
       const file = $('art-file').files[0]
       const source = file ? await normalizeImage(file) : art
       if (!modal.open || dialogPage !== 'forge') return
-      const item = { id: 'user-' + crypto.randomUUID(), name, art: source, power }
+      const item = { id: 'user-' + crypto.randomUUID(), name, art: source, power, extraPowers:[$('bonus-ability').value].filter(k=>k&&k!==power) }
       custom.push(item)
       save()
       if (storageIssue) {
@@ -1235,10 +1199,12 @@ $('power-area').onclick = (e) => {
     )
     return
   }
-  const kind = catalog().find((item) => item.id === p.t)?.power
-  if (['radiance','nova'].includes(kind)) activatePower(selected, null, kind)
+  const kind=e.target.closest('[data-power]')?.dataset.power
+  if(cmd!=='use'||p.c!==game.side||!pieceAbilities(p,catalog()).includes(kind)||passiveAbilities.includes(kind))return
+  mode='move'
+  if(areaAbilities.includes(kind)) activatePower(selected, null, kind)
   else {
-    powerTarget = kind
+    powerTarget = powerTarget===kind?null:kind
     notice = ''
     paintDestinations()
     renderStatus()

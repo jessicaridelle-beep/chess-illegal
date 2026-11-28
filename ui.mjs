@@ -60,8 +60,19 @@ export const escapeHtml = (value) =>
     (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c],
   )
 export const names = { p: 'Pawn', n: 'Knight', b: 'Bishop', r: 'Rook', q: 'Queen', k: 'King' }
-export const abilities = { divine:'Divine protection',supremacy:'All standard moves',absorption:'Absorb movement',fusion:'Combined movement',radiance: 'Radiance', exchange: 'Phase swap', leap: 'Star leap', nova: 'Nova blast', echo: 'Echo spawn', beam: 'Prism beam' }
+export const abilities = {decree:"Royal decree",dominion:"Dominion",consume:"Devour",replicate:"Fusion echo",blessing:"Light shield",phase:"Phase walk",comet:"Comet strike",shockwave:"Shockwave",mirror:"Echo clone",diagonal:"Diagonal prism", divine:'Divine protection',supremacy:'All standard moves',absorption:'Absorb movement',fusion:'Combined movement',radiance: 'Radiance', exchange: 'Phase swap', leap: 'Star leap', nova: 'Nova blast', echo: 'Echo spawn', beam: 'Prism beam' }
 export const powers = {
+  decree: "Grant a friendly piece immortality against bot captures, anywhere on the board.",
+  dominion: "Convert any enemy non-royal piece to your army, anywhere on the board.",
+  consume: "Capture an adjacent enemy and inherit its movement.",
+  replicate: "Duplicate this fusion onto a neighboring empty square, preserving all inherited traits.",
+  blessing: "Protect an adjacent ally from bot captures.",
+  phase: "Teleport to any empty, intact square.",
+  comet: "Remove an enemy a knight's jump away without moving.",
+  shockwave: "Remove all enemies within two squares, including diagonals.",
+  mirror: "Duplicate this piece on an adjacent empty square.",
+  diagonal: "Remove the first enemy on an unobstructed diagonal, up to four squares away.",
+
   divine: 'A royal piece that cannot be captured, converted or destroyed. Moves like a king.',
   supremacy: 'Combines every standard movement, including queen slides and knight jumps.',
   absorption: 'Starts with king movement and permanently inherits movement from captured pieces.',
@@ -70,7 +81,7 @@ export const powers = {
   exchange: 'Trade squares with any other piece. Both pieces stay on the board.',
   leap: 'Jump two squares in any direction and convert an enemy at the midpoint.',
   nova: 'Clear all adjacent enemy pieces, leaving allies untouched.',
-  echo: 'Summon a friendly pawn on a neighboring empty square, except the first or eighth rank.',
+  echo: 'Summon a friendly pawn on a neighboring empty square, except either back rank.',
   beam: 'Remove the first enemy along an unobstructed straight line, up to four squares away.',
 }
 const relic = (color, emblem) => 'data:image/svg+xml,' + encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 96 96"><path d="M22 84h52l-5-14-10-9H37l-10 9z" fill="#25252e" stroke="'+color+'" stroke-width="4"/><circle cx="48" cy="38" r="29" fill="#22232d" stroke="'+color+'" stroke-width="4"/><g fill="'+color+'" stroke="#fff" stroke-width="1.5" stroke-linejoin="round">'+emblem+'</g></svg>')
@@ -86,6 +97,17 @@ export const originals = [
   { id: 'echo', name: 'Echo', power: 'echo', art: relic('#6ce4b5','<circle cx="39" cy="30" r="9"/><path d="M26 54h26l-4-7H30z"/><circle cx="59" cy="37" r="8"/><path d="M49 59h23l-4-7H53z"/>') },
   { id: 'prism', name: 'Prism', power: 'beam', art: relic('#71d8ff','<path d="m48 15 21 23-21 25-21-25z"/><path d="m48 15 0 48m-21-25h42" fill="none" stroke="#fff" stroke-width="2"/>') },
 ]
+export const passiveAbilities = ['divine','supremacy','absorption','fusion']
+export const areaAbilities = ['radiance','nova','shockwave']
+const bonusAbilities = {"godking":"decree","overlord":"dominion","devourer":"consume","fusion":"replicate","illuminator":"blessing","phantom":"phase","starwalker":"comet","nova":"shockwave","echo":"mirror","prism":"diagonal"}
+export function pieceAbilities(piece,catalog=originals) {
+  if(!piece)return []
+  const item=catalog.find(x=>x.id===piece.t)
+  return [...new Set([item?.power,bonusAbilities[piece.t],...(item?.extraPowers||[]),...(piece.extraPowers||[])].filter(x=>abilities[x]))]
+}
+export function movementDescription(t) {
+  return ({godking:'One square in any direction; immune to capture and check.',overlord:'Queen lines, knight jumps, and every other standard movement.',devourer:'Starts with king movement; grows with each captured piece.',fusion:'Uses the inherited movement of both merged pieces.'})[t] || (names[t]?({p:'Forward one or two initially; captures diagonally.',n:'L-shaped jumps.',b:'Diagonal slides.',r:'Horizontal or vertical slides.',q:'Straight and diagonal slides.',k:'One square in any direction.'})[t]:'Up to two squares in any direction (sandbox movement).')
+}
 export function pieceArt(type, color, catalog) {
   if (names[type])
     return (

@@ -1,5 +1,5 @@
 import { Chess, validateFen } from './vendor/chess.mjs'
-import { names } from './ui.mjs'
+import { names, pieceAbilities, originals } from './ui.mjs?v=reality-4'
 export const files = 'abcdefgh'
 export const ranks = [8, 7, 6, 5, 4, 3, 2, 1]
 export const other = (c) => (c === 'w' ? 'b' : 'w')
@@ -14,9 +14,9 @@ export const isDivine = p => !!p && (p.t==='godking'||p.divine===true)
 export const isRoyal = p => !!p && (p.t==='k'||p.t==='godking'||p.royal===true)
 const standardTypes=['p','n','b','r','q','k']
 const traits = p => !p?[]:p.t==='overlord'?standardTypes:p.t==='godking'?['k']:p.t==='devourer'?['k',...(p.traits||[])]:p.t==='fusion'?(p.traits||['k']):standardTypes.includes(p.t)?[p.t]:['k']
-export function mergePieces(s,from,to){
+export function mergePieces(s,from,to,catalog=originals){
   const p=s.b[from],q=s.b[to];if(!p||!q||from===to||p.c!==s.side||q.c!==s.side||isDestroyed(s,to))return false
-  removeRights(s,from,p);removeRights(s,to,q);delete s.b[from];s.b[to]={c:p.c,t:'fusion',traits:[...new Set([...traits(p),...traits(q)])],royal:isRoyal(p)||isRoyal(q),divine:isDivine(p)||isDivine(q),immortal:!!(p.immortal||q.immortal||isDivine(p)||isDivine(q)),absorbs:p.t==='devourer'||q.t==='devourer'||!!p.absorbs||!!q.absorbs};s.ep='-';s.last=[from,to];return true
+  removeRights(s,from,p);removeRights(s,to,q);delete s.b[from];s.b[to]={c:p.c,t:'fusion',traits:[...new Set([...traits(p),...traits(q)])],royal:isRoyal(p)||isRoyal(q),divine:isDivine(p)||isDivine(q),immortal:!!(p.immortal||q.immortal||isDivine(p)||isDivine(q)),extraPowers:[...new Set([...pieceAbilities(p,catalog),...pieceAbilities(q,catalog)].filter(k=>!['divine','supremacy','absorption','fusion'].includes(k)))],absorbs:p.t==='devourer'||q.t==='devourer'||!!p.absorbs||!!q.absorbs};s.ep='-';s.last=[from,to];return true
 }
 export function destroySquare(s,sq){if(!allSquares(s).includes(sq)||isDivine(s.b[sq]))return false;edit(s,sq,null);s.destroyed=[...(s.destroyed||[]),sq];s.last=[sq];return true}
 export function toggleCheckmateImmunity(s){s.checkmateImmunity=!s.checkmateImmunity;s.last=[];return s.checkmateImmunity}
@@ -176,53 +176,38 @@ export function neighbors(sq, size=8) {
     .flatMap((a) => [-1, 0, 1].filter((b) => a || b).map((b) => at(x + a, y + b,size)))
     .filter(Boolean)
 }
-export function usePower(s, from, to, kind) {
-  const p = s.b[from]
-  if (!p || (to&&(isDestroyed(s,to)||isDivine(s.b[to])))) return false
-  if (kind === 'radiance') {
-    const targets = neighbors(from,boardSize(s)).filter((sq) => s.b[sq] && s.b[sq].c !== p.c && !isDivine(s.b[sq]))
-    if (!targets.length) return false
-    for (const sq of targets) {
-      removeRights(s, sq, s.b[sq])
-      s.b[sq] = { ...s.b[sq], c: p.c }
+export function usePower(s,from,to,kind,catalog=originals){
+  const p=s.b[from]
+  if(!p||p.c!==s.side||!pieceAbilities(p,catalog).includes(kind))return false
+  const targets=powerTargets(s,from,kind)
+  if(['radiance','nova','shockwave'].includes(kind)){
+    if(!targets.length)return false
+    for(const sq of targets){
+      if(kind==='radiance'){removeRights(s,sq,s.b[sq]);s.b[sq]={...s.b[sq],c:p.c}}
+      else edit(s,sq,null)
     }
-    s.last = [from, ...targets]
-  } else if (kind === 'exchange') {
-    if (!to || to === from || !s.b[to]) return false
-    const q = s.b[to]
-    removeRights(s, to, q)
-    s.b[from] = q
-    s.b[to] = p
-    s.last = [from, to]
-  } else if (kind === 'leap') {
-    if (!to) return false
-    const [x, y] = xy(from),
-      [a, b] = xy(to),
-      dx = Math.abs(x - a),
-      dy = Math.abs(y - b)
-    if (Math.max(dx, dy) !== 2 || (dx !== 0 && dx !== 2) || (dy !== 0 && dy !== 2)) return false
-    const mid = at((x + a) / 2, (y + b) / 2,boardSize(s))
-    if (s.b[mid] && s.b[mid].c !== p.c&&!isDivine(s.b[mid])) {
-      removeRights(s, mid, s.b[mid])
-      s.b[mid] = { ...s.b[mid], c: p.c }
-    }
-    edit(s, to, p)
-    delete s.b[from]
-    s.last = [from, mid, to]
-  } else if (kind === 'nova' || kind === 'echo' || kind === 'beam') {
-    const targets = powerTargets(s, from, kind)
-    if (kind === 'nova') {
-      if (!targets.length) return false
-      for (const sq of targets) edit(s, sq, null)
-      s.last = [from, ...targets]
-    } else {
-      if (!targets.includes(to)) return false
-      edit(s, to, kind === 'echo' ? { c: p.c, t: 'p' } : null)
-      s.last = [from, to]
-    }
-  } else return false
-  s.ep = '-'
-  return true
+    s.last=[from,...targets]
+  }else{
+    if(!targets.includes(to))return false
+    if(kind==='exchange'){
+      const q=s.b[to];removeRights(s,to,q);removeRights(s,from,p);s.b[from]=q;s.b[to]=p
+    }else if(kind==='leap'){
+      const [x,y]=xy(from),[a,b]=xy(to),mid=at((x+a)/2,(y+b)/2,boardSize(s))
+      if(s.b[mid]&&s.b[mid].c!==p.c&&!isDivine(s.b[mid])){removeRights(s,mid,s.b[mid]);s.b[mid]={...s.b[mid],c:p.c}}
+      move(s,from,to);s.last=[from,mid,to];s.ep='-';return true
+    }else if(kind==='echo')edit(s,to,{c:p.c,t:'p'})
+    else if(['beam','diagonal','comet'].includes(kind))edit(s,to,null)
+    else if(['decree','blessing'].includes(kind))s.b[to]={...s.b[to],immortal:true}
+    else if(kind==='dominion'){removeRights(s,to,s.b[to]);s.b[to]={...s.b[to],c:p.c}}
+    else if(kind==='consume'){
+      const victim=s.b[to],inherited=[...new Set([...traits(p),...traits(victim)])]
+      move(s,from,to);s.b[to]={...s.b[to],traits:inherited,absorbs:true};s.last=[from,to];s.ep='-';return true
+    }else if(kind==='phase'){move(s,from,to);s.ep='-';return true}
+    else if(['replicate','mirror'].includes(kind))edit(s,to,copy(p))
+    else return false
+    s.last=[from,to]
+  }
+  s.ep='-';return true
 }
 const values = { p: 1, n: 3, b: 3.2, r: 5, q: 9, k: 14 }
 const price = (p) => (p ? values[p.t] || 6 : 0)
@@ -239,6 +224,7 @@ export function movement(b, from, to, size=8, blocked=[], special=true) {
     const types=special?traits(p):p.t==='godking'?['k']:['k'];
     return types.some(t=>movement({...b,[from]:{c:p.c,t}},from,to,size,blocked,false))
   }
+  if(special&&p.absorbs&&p.traits?.length&&p.traits.some(t=>movement({...b,[from]:{c:p.c,t}},from,to,size,blocked,false)))return true
   if (!names[p.t]) return Math.max(ax, ay) < 3
   if (p.t === 'k') return Math.max(ax, ay) === 1
   if (p.t === 'n') return ax * ay === 2
@@ -263,23 +249,29 @@ export function movement(b, from, to, size=8, blocked=[], special=true) {
   for (let i = 1; i < Math.max(ax, ay); i++) if (b[at(x + sx * i, y + sy * i,size)]||blocked.includes(at(x+sx*i,y+sy*i,size))) return false
   return true
 }
-export function powerTargets(s, from, kind) {
-  const p = s.b[from]
-  if (!p) return []
-  if (kind === 'nova' || kind === 'radiance') return neighbors(from,boardSize(s)).filter(sq => s.b[sq] && s.b[sq].c !== p.c && !isDivine(s.b[sq]))
-  if (kind === 'echo') return neighbors(from,boardSize(s)).filter(sq => !isDestroyed(s,sq)&&!s.b[sq] && !['1',String(boardSize(s))].includes(sq.slice(1)))
-  if (kind === 'beam') {
-    const [x,y] = xy(from), out = []
-    for (const [dx,dy] of [[1,0],[-1,0],[0,1],[0,-1]]) {
-      for (let i=1;i<=4;i++) {
-        const to = at(x+dx*i,y+dy*i,boardSize(s))
-        if (!to||isDestroyed(s,to)) break
-        if (!s.b[to]) continue
-        if (s.b[to].c !== p.c&&!isDivine(s.b[to])) out.push(to)
-        break
-      }
-    }
-    return out
+export function powerTargets(s,from,kind){
+  const p=s.b[from];if(!p)return []
+  const size=boardSize(s),squares=allSquares(s),adj=neighbors(from,size).filter(sq=>!isDestroyed(s,sq))
+  const enemy=sq=>s.b[sq]&&s.b[sq].c!==p.c&&!isDivine(s.b[sq]),empty=sq=>!s.b[sq],ally=sq=>s.b[sq]?.c===p.c&&sq!==from&&!s.b[sq].immortal&&!isDivine(s.b[sq])
+  const [x,y]=xy(from),dist=sq=>{const [a,b]=xy(sq);return Math.max(Math.abs(a-x),Math.abs(b-y))}
+  if(['nova','radiance','consume'].includes(kind))return adj.filter(enemy)
+  if(kind==='shockwave')return squares.filter(sq=>dist(sq)<=2&&enemy(sq))
+  if(kind==='dominion')return squares.filter(sq=>enemy(sq)&&!isRoyal(s.b[sq]))
+  if(kind==='decree')return squares.filter(ally)
+  if(kind==='blessing')return adj.filter(ally)
+  if(kind==='phase')return squares.filter(empty)
+  if(['replicate','mirror'].includes(kind))return adj.filter(empty)
+  if(kind==='echo')return adj.filter(sq=>empty(sq)&&!['1',String(size)].includes(sq.slice(1)))
+  if(kind==='exchange')return squares.filter(sq=>sq!==from&&s.b[sq]&&!isDivine(s.b[sq]))
+  if(kind==='leap')return squares.filter(sq=>{const [a,b]=xy(sq),dx=Math.abs(a-x),dy=Math.abs(b-y);return Math.max(dx,dy)===2&&[0,2].includes(dx)&&[0,2].includes(dy)&&!isDivine(s.b[sq])})
+  if(kind==='comet')return squares.filter(sq=>{const [a,b]=xy(sq);return Math.abs(a-x)*Math.abs(b-y)===2&&enemy(sq)})
+  if(kind==='beam'||kind==='diagonal'){
+    const out=[],dirs=kind==='beam'?[[1,0],[-1,0],[0,1],[0,-1]]:[[1,1],[-1,-1],[1,-1],[-1,1]]
+    for(const [dx,dy] of dirs)for(let i=1;i<=4;i++){
+      const to=at(x+dx*i,y+dy*i,size);if(!to||isDestroyed(s,to))break
+      if(!s.b[to])continue
+      if(enemy(to))out.push(to);break
+    }return out
   }
   return []
 }
@@ -290,13 +282,14 @@ export function threatenedKings(s, catalog = []) {
     if (!isRoyal(p) || isDivine(p) || (p.immortal && p.c===s.side)) continue
     const attacked = Object.entries(s.b).some(([from,q]) => {
       if (q.c === p.c) return false
-      const power = q.c===s.side ? catalog.find(k=>k.id===q.t)?.power : undefined
+      const skills=q.c===s.side?pieceAbilities(q,catalog):[]
       if(movement(s.b,from,sq,boardSize(s),s.destroyed||[],q.c===s.side))return true
-      if(['nova','radiance','beam'].includes(power)&&powerTargets(s,from,power).includes(sq))return true
-      if(power==='leap'){
-        const [x,y]=xy(from),[a,b]=xy(sq),dx=a-x,dy=b-y
-        // Starwalker's two-square jump converts a king on the midpoint.
-        return Math.max(Math.abs(dx),Math.abs(dy))===1&&!!at(x+2*dx,y+2*dy,boardSize(s))
+      for(const power of skills){
+        if(['nova','radiance','beam','diagonal','comet','shockwave','consume'].includes(power)&&powerTargets(s,from,power).includes(sq))return true
+        if(power==='leap'){
+          const [x,y]=xy(from),[a,b]=xy(sq),dx=a-x,dy=b-y
+          if(powerTargets(s,from,'leap').includes(sq)||Math.max(Math.abs(dx),Math.abs(dy))===1&&powerTargets(s,from,'leap').includes(at(x+2*dx,y+2*dy,boardSize(s))))return true
+        }
       }
       return false
     })
@@ -309,14 +302,7 @@ export function threatenedKings(s, catalog = []) {
 export function destinations(state, from, power) {
   const piece = state.b[from]
   if (!piece) return []
-  if (['nova','radiance','echo','beam'].includes(power)) return powerTargets(state, from, power)
-  if (power === 'exchange') return allSquares(state).filter((to) => to !== from && state.b[to])
-  if (power === 'leap') {
-    const [x, y] = xy(from)
-    return [-2, 0, 2]
-      .flatMap((dx) => [-2, 0, 2].filter((dy) => dx || dy).map((dy) => at(x + dx, y + dy,boardSize(state))))
-      .filter(Boolean)
-  }
+  if(power)return powerTargets(state,from,power)
   const chess = orthodox(state, piece.c)
   if (chess)
     return [...new Set(chess.moves({ square: from, verbose: true }).map((move) => move.to))]
