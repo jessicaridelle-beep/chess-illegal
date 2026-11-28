@@ -1589,3 +1589,5 @@ input[type='checkbox'] {
 
 .grade-miss{--grade-bg:#d93c49;--grade-fg:#fff}
 .grade-illegalMiss{--grade-bg:#a72d66;--grade-fg:#fff}
+
+.grade-pending{background:#ffffff0b;color:inherit;border:1px solid #8886;opacity:.85}

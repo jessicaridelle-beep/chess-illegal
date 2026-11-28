@@ -242,26 +242,33 @@ export function reviewMove(before, after, action, actor, outcome) {
     .find((m) => m.to === to && m.promotion === promotion)
   if (!candidate) return sandbox
   const uci=from+to+(promotion||'')
-  if(isBookMove(chess,uci))return {grade:grade('book','Recognized move in the built-in opening book.','Opening book · curated lines')}
+  const book=isBookMove(chess,uci)
   const fen = chess.fen()
   const allMoves=chess.moves({verbose:true})
   const alternatives = allMoves.map(m=>m.from+m.to+(m.promotion||'')).filter(m=>m!==from+to+(promotion||''))
   chess.move(candidate)
   const expectedBoard=chess.board().flat().filter(Boolean)
   if(expectedBoard.length!==Object.keys(after.b).length||expectedBoard.some(p=>after.b[p.square]?.c!==p.color||after.b[p.square]?.t!==p.type))return sandbox
+  if(book)return {grade:grade('book','Recognized move in the built-in opening book.','Opening book · curated lines')}
   const captured = value[candidate.captured] || 0
   const offer = worth(mover) >= 3 && exchangeGain(chess, to) - captured >= 1.75
-  const instant=instantLegalGrade(allMoves,uci,actor,offer)
-  // Keep the visual rating explicitly provisional in meaning, but immutable on-screen.
-  const first=instant?{...grade('sandbox',instant.detail,instant.source),visualKey:instant.key}:sandbox.grade
-  return { grade: first, search: { fen, played: uci, offer, alternatives } }
+  // Orthodox moves are rated only after a real engine comparison. Never display a guessed grade.
+  return { grade: grade('unrated','Stockfish is comparing the played move with the best available move.','Engine analysis pending'), search: { fen, played: uci, offer, alternatives } }
 }
 function scoreInPawns(score) {
   if (score.type === 'cp') return score.value / 100
   return Math.sign(score.value) * (100 - Math.min(Math.abs(score.value), 90) / 100)
 }
 // Elo-independent expected-points approximation, not Chess.com's private model.
-const expected = score => score.type === 'mate' ? (score.value > 0 ? 1 : 0) : 1/(1+Math.exp(-score.value/155))
+export const expected = score => score.type === 'mate' ? (score.value > 0 ? 1 : 0) : 1/(1+Math.exp(-score.value/155))
+export function expectedClass(loss){
+  if(loss<=1e-8)return 'best'
+  if(loss<=.02+1e-8)return 'excellent'
+  if(loss<=.05+1e-8)return 'good'
+  if(loss<=.10+1e-8)return 'inaccuracy'
+  if(loss<=.20+1e-8)return 'mistake'
+  return 'blunder'
+}
 export function engineGrade(search, answer) {
   const best = expected(answer.best.score), played = expected(answer.actual.score)
   const top = answer.best.move === search.played
@@ -274,19 +281,18 @@ export function engineGrade(search, answer) {
     return result('brilliant','Sound material sacrifice with a strong engine evaluation.'+explanation)
   if (top && alternative!==null && best-alternative>=.18 && best>=.35 && alternative<.75)
     return result('great','A critical move substantially stronger than every searched alternative.'+explanation)
-  if (top || loss<.001) return result('best','Matches the best engine evaluation.'+explanation)
-  if (loss<=.02) return result('excellent','Very close to the engine’s best line.'+explanation)
-  if (loss<=.05) return result('good','Retains most of the expected score.'+explanation)
+  // A missed win is a special classification, not a blanket penalty for quiet moves.
   if (best>=.78 && played<=.58 && loss>=.15) return result('miss','Missed a strong winning opportunity.'+explanation)
-  if (loss<=.10) return result('inaccuracy','A stronger continuation was available.'+explanation)
-  if (loss<=.20) return result('mistake','A significant drop in expected score.'+explanation)
-  return result('blunder','A major loss of expected score.'+explanation)
+  const key=expectedClass(loss)
+  const descriptions={best:'Matches the strongest engine evaluation.',excellent:'Very close to the strongest engine line.',good:'Retains most of the expected score.',inaccuracy:'A stronger continuation was available.',mistake:'A significant drop in expected score.',blunder:'A major loss of expected score.'}
+  return result(key,descriptions[key]+explanation)
 }
 
 // One immutable presentation snapshot per action; later engine analysis is independent.
 export function lockBadge(entry){
   if(!entry?.grade)return null
   if(entry.badge)return entry.badge
+  if(entry.search||entry.grade.key==='unrated')return null
   const key=entry.grade.visualKey||entry.grade.key
   const [title,mark]=grades[key]||grades.sandbox
   return entry.badge={key,title,mark,estimated:entry.grade.key==='sandbox'&&!entry.grade.powerCategory,pending:false,power:entry.grade.powerCategory||null}
@@ -299,7 +305,11 @@ export function badgeEffect(key){
   if(['void','reality','time','chaos','fusion','customPower','divine','summon','conversion','destruction'].includes(key))return 'power'
   return 'standard'
 }
-export function badgePulseKey(entry){return entry?.id&&entry.grade?entry.id+':'+lockBadge(entry).key:null}
+export function badgePulseKey(entry){const badge=lockBadge(entry);return entry?.id&&badge?entry.id+':'+badge.key:null}
+export const waitingForRating=entry=>Boolean(entry?.search&&!entry.badge)
+export function finishRating(entry,finalGrade){
+  entry.grade=finalGrade;delete entry.search;lockBadge(entry);return entry
+}
 
 export const illegalPowerGrades={"flip":"reality","expand":"reality","lock":"reality","rewind":"time","freeze":"time","double":"time","hole":"void","spawn":"summon","clone":"summon","echo":"summon","mirror":"summon","replicate":"summon","merge":"fusion","transform":"fusion","immortal":"divine","immunity":"divine","decree":"divine","blessing":"divine","convert":"conversion","dominion":"conversion","radiance":"conversion","destroy":"destruction","delete":"destruction","nova":"chaos","shockwave":"chaos","beam":"chaos","diagonal":"chaos","comet":"chaos","consume":"chaos","phase":"illegalMove","exchange":"illegalMove","leap":"illegalMove","control":"illegalMove","sidestep":"illegalMove"}
 export function classifyAction(before,action,actor){
@@ -425,6 +435,8 @@ export function reviewAction(before,after,action,actor,outcome){
   const legality=classifyAction(before,action,actor)
   const result=reviewMove(before,after,action,actor,outcome)
   result.legality=legality
+  // The actual engine takes precedence over every shallow tactical or material rule.
+  if(legality.kind==='legal'&&(result.search||result.grade.key==='book'))return result
   const tactical=outcome?null:tacticalAssessment(before,after,action,actor)
   if(tactical){
     result.grade={...grade('sandbox',tactical.detail,tactical.source),visualKey:tactical.key}
@@ -432,7 +444,6 @@ export function reviewAction(before,after,action,actor,outcome){
     if(legality.kind!=='legal')delete result.search
     return result
   }
-  if(legality.kind==='legal'&&(result.search||result.grade.key==='book'))return result
   if(legality.kind!=='legal')delete result.search
   const gained=points(after.b,actor)-points(before.b,actor)
   const quick=result.grade.visualKey||result.grade.key
@@ -468,10 +479,10 @@ export function trackerSummary(logs){
   }
   return out
 }
-export function nextTrackerReview(logs){return logs.find(entry=>entry.search)||null}
+export function nextTrackerReview(logs){return logs.find(waitingForRating)||logs.find(entry=>entry.search)||null}
 export function latestBoardGrade(logs){
   const entry=logs.at(-1)
-  if(!entry?.grade||!entry.fx||(!entry.sq&&!entry.fx.power))return null
+  if(!entry?.grade||!entry.fx||(!entry.sq&&!entry.fx.power)||!displayGrade(entry))return null
   return entry
 }
 

@@ -1,4 +1,4 @@
-import { sacrificeCandidates, chooseHunterMove } from './review.mjs?v=tactics-19'
+import { sacrificeCandidates, chooseHunterMove } from './review.mjs?v=review-20'
 // A worker belongs to one job. Reuse it for both root searches in a move review.
 function engineJob(requests, skill, onComplete) {
   let worker, timer, finish

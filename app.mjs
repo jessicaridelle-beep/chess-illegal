@@ -21,8 +21,8 @@ import {
   convertPiece,
   boardSize, boardFiles, boardRanks, allSquares, expandBoard, blackHole, xy, legalBotTrial, sandboxNoMove, clonePiece, toggleImmortality, freezeBot, toggleRealityLock, consumeBotFreeze, godTrial, godPower,
 } from './game.mjs?v=tracker-16'
-import { stockfishMove, compareMove, brilliantHunterMove } from './engine.mjs?v=tactics-19'
-import { grades, reviewAction, engineGrade, displayGrade, latestBoardGrade, gradeSquares, trackerSummary, nextTrackerReview, classifyAction, lockBadge, badgeEffect, badgePulseKey } from './review.mjs?v=tactics-19'
+import { stockfishMove, compareMove, brilliantHunterMove } from './engine.mjs?v=review-20'
+import { grades, reviewAction, engineGrade, displayGrade, latestBoardGrade, gradeSquares, trackerSummary, nextTrackerReview, classifyAction, lockBadge, badgeEffect, badgePulseKey, waitingForRating, finishRating } from './review.mjs?v=review-20'
 const $ = (id) => document.getElementById(id),
   modal = $('modal'),
   board = $('board')
@@ -106,23 +106,23 @@ function renderDuel(){
   panel.hidden=!d
   updateFlipCooldown()
   if(!d)return
-  $('duel-state').textContent=game.result?resultTitle():duelBusy?(isHunter(d[d.turn])?'Hunting for a brilliant move · ':'Thinking · ')+duelName(d.turn):duelRunning?'Playing · '+colorName(d.turn):'Paused · '+colorName(d.turn)+' to move'
+  $('duel-state').textContent=game.result?resultTitle():waitingForRating(game.logs.at(-1))?'Reviewing last move · Stockfish':duelBusy?(isHunter(d[d.turn])?'Hunting for a brilliant move · ':'Thinking · ')+duelName(d.turn):duelRunning?'Playing · '+colorName(d.turn):'Paused · '+colorName(d.turn)+' to move'
   $('duel-toggle').textContent=duelRunning?'Pause':'Resume'
   $('duel-toggle').disabled=!!game.result
-  $('duel-step').disabled=duelRunning||duelBusy||!!game.result
+  $('duel-step').disabled=duelRunning||duelBusy||!!game.result||waitingForRating(game.logs.at(-1))
   $('duel-white').textContent=duelName('w')+' · '+duelProfile('w')[2]
   $('duel-black').textContent=duelName('b')+' · '+duelProfile('b')[2]
   const streak=game.bossActionStreak,anti=$('duel-repeat-status');if(anti){const kinds=(game.bossRecentActions||[]).slice(-4);anti.textContent='Anti-spam v3 · '+(bossNeedsMove(game,d.turn)&&isBoss(d[d.turn])?'Piece move required · ':'')+(kinds.length?kinds.map(k=>k==='move'?'Illegal move':k==='legal'?'Legal move':actionNames[k]||abilities[k]||k).join(' → '):'Ready')}
   $('duel-count').textContent=(d.plies||0)+' moves'+['w','b'].filter(c=>isBoss(d[c])).map(c=>' · '+colorName(c)+' grace '+Math.min(BOSS_GRACE,bossInfo(game,c).turns)+'/'+BOSS_GRACE).join('')
 }
 function scheduleDuel(){
-  if(!game.duel||!duelRunning||game.result||duelBusy)return
+  if(!game.duel||!duelRunning||game.result||duelBusy||waitingForRating(game.logs.at(-1)))return
   clearTimeout(timer)
   const token=epoch
   timer=setTimeout(()=>{if(token===epoch&&duelRunning)duelStep()},game.duel.delay||500)
 }
 async function duelStep(){
-  if(!game.duel||duelBusy||game.result)return
+  if(!game.duel||duelBusy||game.result||waitingForRating(game.logs.at(-1)))return
   cancelBot();const token=epoch,d=game.duel,actor=d.turn,id=d[actor],p=duelProfile(actor)
   duelBusy=true;renderStatus()
   try{
@@ -249,18 +249,24 @@ async function reviewQueue() {
   activeReview = compareMove(search.fen, search.played, search.alternatives)
   try {
     const answer = await activeReview.result
-    const finalGrade = answer ? engineGrade(search, answer) : {...next.grade,detail:next.grade.detail+' Engine review unavailable; this remains an estimate.',source:'Sandbox estimate · engine unavailable'}
+    const finalGrade = answer ? engineGrade(search, answer) : {key:'unrated',detail:'Stockfish could not complete its comparison. No rating was guessed.',source:'Engine unavailable'}
+    const wasWaiting=game.logs.at(-1)?.id===id&&waitingForRating(game.logs.at(-1))
     for (const snapshot of [game, ...undoStack, ...redoStack]) {
       const entry = snapshot.logs.find((item) => item.id === id)
       if (entry) {
-        lockBadge(entry)
-        entry.grade = finalGrade
-        delete entry.search
+        finishRating(entry,finalGrade)
       }
     }
     save()
     paintReview()
+    renderStatus()
+    if(game.logs.at(-1)?.id===id)revealGrade(game.logs.at(-1))
     if (modal.open && dialogPage === 'history') showHistory()
+    // Hold automatic moves until the previous real rating has appeared.
+    if(wasWaiting&&!game.result){
+      if(game.duel&&duelRunning)scheduleDuel()
+      else if(!game.duel&&game.pending&&!engine)scheduleBot()
+    }
   } finally {
     activeReview = null
     if (game.logs.some((item) => item.search)) queueMicrotask(reviewQueue)
@@ -287,14 +293,15 @@ function markEdit(text,action,before=undoStack.at(-1),actor=game.side){
 }
 function gradeChip(entry){
   const d=displayGrade(entry)
-  if(!d)return ''
+  if(!d)return entry?.search?'<span class="grade-chip grade-pending">Analyzing…</span>':entry?.grade?.key==='unrated'?'<span class="grade-chip grade-pending">Unrated</span>':''
   return '<span class="grade-chip grade-'+d.key+'"><i>'+d.mark+'</i>'+esc(d.title)+(d.estimated?' · estimate':'')+'</span>'
 }
 
 function revealGrade(entry) {
   if (!entry?.id || !entry.grade || revealed.has(entry.id)) return
+  const d=displayGrade(entry);if(!d)return
   revealed.add(entry.id)
-  const d=displayGrade(entry),k=d.key
+  const k=d.key
   if (!prefs.effects || !prefs.cinematic || !['brilliant','illegalBrilliant','illegalMate','winning'].includes(k)) return
   const {title,mark}=d
   board.querySelector('.grade-cinematic')?.remove()
@@ -332,7 +339,7 @@ function paintReview(){
   const box=$('move-review')
   box.hidden=!last
   if(last){
-    box.innerHTML=gradeChip(last)+'<div><strong>'+esc(last.by+' · '+last.text+(last.legality?' · '+last.legality.kind.toUpperCase():''))+'</strong><p>'+esc(last.search?'Stockfish is reviewing the move.':last.grade.detail+(last.legality?' '+last.legality.reason:'')+(last.grade.quality?' Tactical mark: '+grades[last.grade.quality][0]+'.':''))+'</p></div><small>'+esc(last.search?'Instant badge locked · Stockfish review pending':'Detailed review: '+(grades[last.grade.visualKey||last.grade.key]?.[0]||last.grade.key)+' · '+last.grade.source+(Number.isFinite(last.grade.accuracy)?' · '+last.grade.accuracy.toFixed(1)+'% expected-score retention':''))+'</small>'
+    box.innerHTML=gradeChip(last)+'<div><strong>'+esc(last.by+' · '+last.text+(last.legality?' · '+last.legality.kind.toUpperCase():''))+'</strong><p>'+esc(last.search?'Stockfish is reviewing the move.':last.grade.detail+(last.legality?' '+last.legality.reason:'')+(last.grade.quality?' Tactical mark: '+grades[last.grade.quality][0]+'.':''))+'</p></div><small>'+esc(last.search?'Stockfish comparing moves · badge appears when ready':'Detailed review: '+(grades[last.grade.visualKey||last.grade.key]?.[0]||last.grade.key)+' · '+last.grade.source+(Number.isFinite(last.grade.accuracy)?' · '+last.grade.accuracy.toFixed(1)+'% expected-score retention':''))+'</small>'
   }
   const marked=prefs.marks?latestBoardGrade(game.logs):null
   const pulseKey=badgePulseKey(marked)
@@ -931,7 +938,7 @@ async function bossTurn(token){
   save();render();chime(true);if(game.result)showResult();else if(game.pending)scheduleBot()
 }
 function scheduleBot() {
-  if(game.duel)return
+  if(game.duel||waitingForRating(game.logs.at(-1)))return
   cancelBot()
   const token = epoch
   timer = setTimeout(() => {
@@ -1035,7 +1042,7 @@ function showHistory() {
       '</b>'
     if (!entry.grade) return '<li>' + line + '</li>'
     const detail = entry.search
-      ? 'Instant badge locked. Stockfish is analyzing this position.'
+      ? 'Stockfish is analyzing this position before assigning a badge.'
       : 'Detailed review: '+(grades[entry.grade.visualKey||entry.grade.key]?.[0]||entry.grade.key)+' · '+entry.grade.detail + ' · ' + entry.grade.source+(entry.legality?' · '+entry.legality.kind.toUpperCase()+': '+entry.legality.reason:'')+(entry.grade.quality?' · Tactical mark: '+grades[entry.grade.quality][0]:'')
     return (
       '<li><details data-entry="' +
@@ -1065,7 +1072,7 @@ function showHelp() {
     ],
     [
       'Move review',
-      'Stockfish compares ordinary moves with its best line. A brilliant move offers material while keeping a strong evaluation. Move Tracker automatically reviews every completed move by either side. An instant badge is locked when the move happens. A bounded tactical exchange search checks exposed pieces, recaptures, king danger and missed safe captures before ranking legal alternatives, while deeper Stockfish analysis appears separately and never changes the badge. Instant best ratings are shallow estimates, not engine-confirmed best moves. Dots and capture rings are legal destinations even for custom pieces; off-target moves get illegal variants. Stockfish reviews compatible legal positions, while legal custom moves use ordinary rating colors with a sandbox estimate. Powers retain distinct event marks and a tactical assessment. Sandbox estimates are labeled separately from verified engine grades. Brilliant engine grades require an engine-supported sacrifice. Illegal tactical ratings are sandbox estimates. Special powers have unique event marks for summoning, time, reality, void, fusion, protection and more. A small built-in opening book identifies common known opening moves. Open Move history for both sides’ grades.',
+      'Stockfish compares ordinary moves with its best line. A brilliant move offers material while keeping a strong evaluation. Move Tracker automatically reviews every completed move by either side. Standard moves are rated by Stockfish before any badge appears. The published expected-points loss bands used by Chess.com are applied to an approximate score conversion. Automatic bot play waits for the badge; the rating is locked once displayed. Custom and illegal positions still use bounded tactical estimates because standard Stockfish cannot understand their rules. Dots and capture rings are legal destinations even for custom pieces; off-target moves get illegal variants. Stockfish reviews compatible legal positions, while legal custom moves use ordinary rating colors with a sandbox estimate. Powers retain distinct event marks and a tactical assessment. Sandbox estimates are labeled separately from verified engine grades. Brilliant engine grades require an engine-supported sacrifice. Illegal tactical ratings are sandbox estimates. Special powers have unique event marks for summoning, time, reality, void, fusion, protection and more. A small built-in opening book identifies common known opening moves. Open Move history for both sides’ grades.',
     ],
     [
       'Move anywhere',
