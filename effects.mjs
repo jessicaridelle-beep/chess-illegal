@@ -129,3 +129,15 @@ export function renderEffects(board,fx,{size,view,art,delay=500}){
   }
   if(layer.childNodes.length){board.append(layer);setTimeout(()=>layer.remove(),duration+650)}
 }
+
+export function playFinaleSound(mate){
+  const a=unlockSound();if(!a)return false
+  try{
+    const t=a.currentTime+.015
+    tone(a,t,95,40,.48,.10,'sine');tone(a,t,240,720,.44,.055,'triangle')
+    if(mate){const hit=t+.55;tone(a,hit,130,35,.28,.14,'triangle');noise(a,hit,.24,.14,2200);noise(a,hit+.04,.25,.07,5000,'highpass')}
+    const start=t+(mate?.78:.25)
+    ;[330,440,554,660].forEach((hz,i)=>tone(a,start+i*.085,hz,hz,.26,.055,'triangle'))
+    return true
+  }catch{return false}
+}

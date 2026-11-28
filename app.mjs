@@ -1,5 +1,6 @@
-import { paintEditPaths, clearEditPaths, burstEdit } from './editfx.mjs?v=glow-26'
-import { describeEffect, effectDuration, unlockSound, playEffectSound, renderEffects } from './effects.mjs?v=glow-26'
+import { isMate, isBrilliant, playFinale } from './finale.mjs?v=finale-27'
+import { paintEditPaths, clearEditPaths, burstEdit, editPaths } from './editfx.mjs?v=glow-26'
+import { describeEffect, effectDuration, unlockSound, playEffectSound, renderEffects, playFinaleSound } from './effects.mjs?v=finale-27'
 import { icon, names, abilities, powers, originals, pieceArt, pieceAbilities, movementDescription, passiveAbilities, areaAbilities, escapeHtml as esc } from './ui.mjs?v=boss-11'
 import {
   fresh,
@@ -65,6 +66,7 @@ let mode = 'move',
   dialogPage = '',
   storageIssue = false
 let lastGradePulse=null,lastEditBurst=game.logs.at(-1)?.id
+let lastFinale=game.logs.at(-1)?.id,finaleUntil=0,finaleResultTimer=null
 let lastAnimated = game.logs.at(-1)?.id, annotations = [], arrowStart = null, revealed = new Set(game.logs.filter(x=>!x.search).map(x=>x.id))
 const catalog = () => [...originals, ...custom]
 const label = (t) => names[t] || catalog().find((x) => x.id === t)?.name || 'Custom piece'
@@ -124,7 +126,7 @@ function scheduleDuel(){
   if(!game.duel||!duelRunning||game.result||duelBusy||waitingForRating(game.logs.at(-1)))return
   clearTimeout(timer)
   const token=epoch
-  timer=setTimeout(()=>{if(token===epoch&&duelRunning)duelStep()},game.duel.delay||500)
+  timer=setTimeout(()=>{if(token===epoch&&duelRunning)duelStep()},Math.max(game.duel.delay||500,finaleUntil-Date.now()+30))
 }
 async function duelStep(){
   if(!game.duel||duelBusy||game.result||waitingForRating(game.logs.at(-1)))return
@@ -160,7 +162,7 @@ async function duelStep(){
     resetSelection()
     if(game.result)duelRunning=false
   }catch(err){if(epoch===token){duelRunning=false;notice='Bot match paused: '+String(err.message||err)}}
-  finally{if(epoch===token){duelBusy=false;save();render();chime(true);if(game.result)showResult();else scheduleDuel()}}
+  finally{if(epoch===token){duelBusy=false;save();render();chime(true);if(game.result)showResultAfterFinale();else scheduleDuel()}}
 }
 function duelDialog(){
   pauseDuel();renderStatus()
@@ -275,7 +277,7 @@ async function reviewQueue() {
     save()
     paintReview()
     renderStatus()
-    if(game.logs.at(-1)?.id===id)revealGrade(game.logs.at(-1))
+    if(game.logs.at(-1)?.id===id){revealGrade(game.logs.at(-1));maybeFinale(game.logs.at(-1))}
     if (modal.open && dialogPage === 'history') showHistory()
     // Hold automatic moves until the previous real rating has appeared.
     if(wasWaiting&&!game.result){
@@ -316,6 +318,23 @@ function gradeChip(entry){
   return '<span class="grade-chip grade-'+d.key+'"><i>'+d.mark+'</i>'+esc(d.title)+(d.estimated?' · estimate':'')+'</span>'
 }
 
+function maybeFinale(entry=game.logs.at(-1)){
+  if(!entry?.id||lastFinale===entry.id||!prefs.effects||!prefs.cinematic||!prefs.editGlow)return
+  const grade=displayGrade(entry),mate=isMate(game.result)
+  if(!mate&&!isBrilliant(grade))return
+  lastFinale=entry.id
+  const attack=(from,to)=>movement(game.b,from,to,boardSize(game),game.destroyed||[],true)
+  const duration=playFinale(board,game,entry,grade,{size:boardSize(game),view:game.view,art:(t,c)=>pieceArt(t,c,catalog()),attack,paths:editPaths(game,entry,attack)})
+  if(duration){finaleUntil=Date.now()+duration;if(prefs.sound)playFinaleSound(mate)}
+}
+function showResultAfterFinale(){
+  const result=game.result,id=game.logs.at(-1)?.id
+  if(!result)return
+  clearTimeout(finaleResultTimer)
+  const wait=Math.max(0,finaleUntil-Date.now())
+  if(!wait){showResult();return}
+  finaleResultTimer=setTimeout(()=>{if(game.result===result&&game.logs.at(-1)?.id===id&&!modal.open)showResult()},wait+30)
+}
 function revealGrade(entry) {
   if (!entry?.id || !entry.grade || revealed.has(entry.id)) return
   const d=displayGrade(entry);if(!d)return
@@ -323,7 +342,7 @@ function revealGrade(entry) {
   const k=d.key
   if (!prefs.effects || !prefs.cinematic || !['brilliant','illegalBrilliant','illegalMate','winning'].includes(k)) return
   // The chess-edit mode uses the on-square badge burst rather than a large text overlay.
-  if(prefs.editGlow&&prefs.marks)return
+  if(prefs.editGlow)return
   const {title,mark}=d
   board.querySelector('.grade-cinematic')?.remove()
   const overlay = document.createElement('div')
@@ -442,7 +461,7 @@ function chime(){
   if(!entry?.fx||entry.id===lastSounded)return
   lastSounded=entry.id
   if(!prefs.sound)return
-  playEffectSound(entry.fx,{delay:prefs.effects&&entry.fx.travel?.length?Math.round(effectDuration(game.duel?.delay||500)*.72):0,check:!!threatenedKings(game,catalog()).length,win:!!game.result?.winner})
+  playEffectSound(entry.fx,{delay:prefs.effects&&entry.fx.travel?.length?Math.round(effectDuration(game.duel?.delay||500)*.72):0,check:!!threatenedKings(game,catalog()).length,win:!!game.result?.winner&&!(prefs.effects&&prefs.cinematic&&prefs.editGlow&&isMate(game.result))})
 }
 function syncSoundButton(){
   const b=$('sound-toggle');if(!b)return
@@ -460,7 +479,7 @@ function endAction(reply = false) {
   save()
   render()
   chime()
-  if (game.result) showResult()
+  if (game.result) showResultAfterFinale()
   else if (game.pending) scheduleBot()
 }
 function travel(from, to, promotion) {
@@ -709,7 +728,10 @@ function renderBoard() {
         (prefs.coords && ri === size-1 ? '<span class="coord file">' + f + '</span>' : '') +
         '</button>'
     }
+  const scene=board.querySelector('.finale-layer')
   board.innerHTML = html
+  if(scene?.dataset.action===entry?.id&&Date.now()<finaleUntil)board.append(scene)
+  else if(scene)finaleUntil=0
   board.dataset.mode = mode
   paintDestinations()
   if(animate)renderEffects(board,entry.fx,{size,view:game.view,art:(t,c)=>pieceArt(t,c,catalog()),delay:game.duel?.delay||500})
@@ -826,6 +848,7 @@ function render() {
   paintReview()
   const latest = game.logs.at(-1)
   revealGrade(latest)
+  maybeFinale(latest)
   $('tool-grid').innerHTML = toolInfo
     .map(
       ([key, name, desc]) =>
@@ -931,7 +954,7 @@ async function botMove(token) {
   save()
   render()
   chime(true)
-  if (game.result) showResult()
+  if (game.result) showResultAfterFinale()
   else if(game.botFollowup){notice='Opponent activated Double turn!';renderStatus();scheduleBot()}
   else if (dialogPage === 'history' && modal.open) showHistory()
 }
@@ -955,7 +978,7 @@ async function bossTurn(token){
   const extra=action.power==='double'||bossConsumeFreeze(game,game.side)
   game.pending=!!(extra&&!game.result)
   resetSelection();notice=count<BOSS_GRACE?'Boss grace period · '+count+'/'+BOSS_GRACE+' moves':extra?'Boss takes another turn':''
-  save();render();chime(true);if(game.result)showResult();else if(game.pending)scheduleBot()
+  save();render();chime(true);if(game.result)showResultAfterFinale();else if(game.pending)scheduleBot()
 }
 function scheduleBot() {
   if(game.duel||waitingForRating(game.logs.at(-1)))return
@@ -969,7 +992,7 @@ function scheduleBot() {
       save()
       render()
     })
-  }, 440)
+  }, Math.max(440,finaleUntil-Date.now()+30))
 }
 function restore(direction) {
   const back = direction === 'undo',
@@ -980,7 +1003,8 @@ function restore(direction) {
   annotations = []
   destination.push(clone(game))
   game = source.pop()
-  lastAnimated=lastSounded=lastEditBurst=game.logs.at(-1)?.id
+  lastAnimated=lastSounded=lastEditBurst=lastFinale=game.logs.at(-1)?.id
+  finaleUntil=0;clearTimeout(finaleResultTimer)
   if(!game.realityTimeline)beginRealityTimeline(game)
   if(game.duel){game.pending=false;duelRunning=false;duelBusy=false}
   spawnColor = game.side
