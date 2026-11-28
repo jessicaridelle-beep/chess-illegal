@@ -1586,3 +1586,6 @@ input[type='checkbox'] {
 /* Excellent is visually distinct from Good; no shared checkmark. */
 .grade-excellent{--grade-bg:#4caaa0;--grade-fg:#fff}
 .grade-illegalExcellent{--grade-bg:#ac70dc;--grade-fg:#fff}
+
+.grade-miss{--grade-bg:#d93c49;--grade-fg:#fff}
+.grade-illegalMiss{--grade-bg:#a72d66;--grade-fg:#fff}

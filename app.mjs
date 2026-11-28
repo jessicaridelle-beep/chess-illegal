@@ -21,8 +21,8 @@ import {
   convertPiece,
   boardSize, boardFiles, boardRanks, allSquares, expandBoard, blackHole, xy, legalBotTrial, sandboxNoMove, clonePiece, toggleImmortality, freezeBot, toggleRealityLock, consumeBotFreeze, godTrial, godPower,
 } from './game.mjs?v=tracker-16'
-import { stockfishMove, compareMove, brilliantHunterMove } from './engine.mjs?v=ratings-18'
-import { grades, reviewAction, engineGrade, displayGrade, latestBoardGrade, gradeSquares, trackerSummary, nextTrackerReview, classifyAction, lockBadge, badgeEffect, badgePulseKey } from './review.mjs?v=ratings-18'
+import { stockfishMove, compareMove, brilliantHunterMove } from './engine.mjs?v=tactics-19'
+import { grades, reviewAction, engineGrade, displayGrade, latestBoardGrade, gradeSquares, trackerSummary, nextTrackerReview, classifyAction, lockBadge, badgeEffect, badgePulseKey } from './review.mjs?v=tactics-19'
 const $ = (id) => document.getElementById(id),
   modal = $('modal'),
   board = $('board')
@@ -322,7 +322,7 @@ function gradeGlyph(d){
   if(d.key==='best'||d.key==='illegalBest')return svg('<path fill="currentColor" d="m12 1.8 3.2 6.6 7.3 1-5.3 5.2 1.3 7.3-6.5-3.5-6.5 3.5 1.3-7.3L1.5 9.4l7.3-1z"/>')
   if(['excellent','illegalExcellent'].includes(d.key))return svg('<path fill="currentColor" d="M12 1 14.5 9.5 23 12 14.5 14.5 12 23 9.5 14.5 1 12 9.5 9.5Z"/>')
   if(d.key==='book')return svg('<path fill="currentColor" d="M2 4c3-1 6-.6 9 1.4v15c-3-2-6-2.4-9-1.4zm20 0c-3-1-6-.6-9 1.4v15c3-2 6-2.4 9-1.4z"/>')
-  if(d.key==='miss'||d.key==='illegalMiss')return svg('<path d="m6 6 12 12M18 6 6 18" fill="none" stroke="currentColor" stroke-width="3.5" stroke-linecap="round"/>')
+  if(d.key==='miss'||d.key==='illegalMiss')return svg('<path d="m5 5 14 14M19 5 5 19" fill="none" stroke="currentColor" stroke-width="3.5" stroke-linecap="round"/>')
   if(['good','illegalGood'].includes(d.key))return svg('<path d="m4 12 5 5L20 6" fill="none" stroke="currentColor" stroke-width="3.5" stroke-linecap="round" stroke-linejoin="round"/>')
   return '<span class="grade-symbol">'+esc(d.mark)+'</span>'
 }
@@ -1065,7 +1065,7 @@ function showHelp() {
     ],
     [
       'Move review',
-      'Stockfish compares ordinary moves with its best line. A brilliant move offers material while keeping a strong evaluation. Move Tracker automatically reviews every completed move by either side. An instant badge is locked when the move happens. A fast positional comparison ranks legal alternatives, while deeper Stockfish analysis appears separately and never changes the badge. Instant best ratings are shallow estimates, not engine-confirmed best moves. Dots and capture rings are legal destinations even for custom pieces; off-target moves get illegal variants. Stockfish reviews compatible legal positions, while legal custom moves use ordinary rating colors with a sandbox estimate. Powers retain distinct event marks and a tactical assessment. Sandbox estimates are labeled separately from verified engine grades. Brilliant engine grades require an engine-supported sacrifice. Illegal tactical ratings are sandbox estimates. Special powers have unique event marks for summoning, time, reality, void, fusion, protection and more. A small built-in opening book identifies common known opening moves. Open Move history for both sides’ grades.',
+      'Stockfish compares ordinary moves with its best line. A brilliant move offers material while keeping a strong evaluation. Move Tracker automatically reviews every completed move by either side. An instant badge is locked when the move happens. A bounded tactical exchange search checks exposed pieces, recaptures, king danger and missed safe captures before ranking legal alternatives, while deeper Stockfish analysis appears separately and never changes the badge. Instant best ratings are shallow estimates, not engine-confirmed best moves. Dots and capture rings are legal destinations even for custom pieces; off-target moves get illegal variants. Stockfish reviews compatible legal positions, while legal custom moves use ordinary rating colors with a sandbox estimate. Powers retain distinct event marks and a tactical assessment. Sandbox estimates are labeled separately from verified engine grades. Brilliant engine grades require an engine-supported sacrifice. Illegal tactical ratings are sandbox estimates. Special powers have unique event marks for summoning, time, reality, void, fusion, protection and more. A small built-in opening book identifies common known opening moves. Open Move history for both sides’ grades.',
     ],
     [
       'Move anywhere',

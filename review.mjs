@@ -1,5 +1,5 @@
 import { Chess } from './vendor/chess.mjs'
-import { orthodox, movement, other, boardSize, destinations } from './game.mjs?v=tracker-16'
+import { orthodox, movement, other, boardSize, destinations, isRoyal, isDivine } from './game.mjs?v=tracker-16'
 
 const value = { p: 1, n: 3, b: 3.2, r: 5, q: 9, k: 0 }
 const worth = (piece) => (piece ? (value[piece.t] ?? 6) : 0)
@@ -14,7 +14,7 @@ export const grades = {
   illegalGood: ['Illegal good', '✓'],
   illegalExcellent: ['Illegal excellent', '✧'],
   illegalInaccuracy: ['Illegal inaccuracy', '?!'],
-  illegalMiss: ['Illegal miss', '×'],
+  illegalMiss: ['Illegal miss', '❌'],
   illegalGreat: ["Illegal great","!"],
   illegalBest: ["Illegal best","★"],
   illegalMove: ["Illegal move","✦"],
@@ -31,7 +31,7 @@ export const grades = {
   destruction: ["Board destruction","×"],
   chaos: ["Chaos strike","✸"],
   customPower: ["Custom power","✧"],
-  miss: ['Miss', '×'],
+  miss: ['Miss', '❌'],
   sandbox: ['Sandbox move', '✦'],
   best: ['Best', '★'],
   excellent: ['Excellent', '✦'],
@@ -313,10 +313,125 @@ export function classifyAction(before,action,actor){
   return {kind:'legal',reason:ch?'Highlighted legal chess move.':'Highlighted legal sandbox movement (including custom pieces).'}
 }
 const illegalQuality={brilliant:'illegalBrilliant',great:'illegalGreat',best:'illegalBest',excellent:'illegalExcellent',good:'illegalGood',inaccuracy:'illegalInaccuracy',mistake:'illegalMistake',blunder:'illegalBlunder',miss:'illegalMiss',winning:'illegalMate',drawn:'drawn'}
+// Bounded tactical exchange evaluator. Only completed calculations establish safe captures.
+const tacticalContext=s=>({size:boardSize(s),blocked:s.destroyed||[],nodes:0,limit:1800,complete:true})
+function tacticalKingDanger(b,color,ctx){
+  const foes=Object.entries(b).filter(([,p])=>p.c!==color)
+  return Object.entries(b).filter(([sq,p])=>p.c===color&&isRoyal(p)&&!isDivine(p)&&!p.immortal&&foes.some(([from])=>movement(b,from,sq,ctx.size,ctx.blocked,true))).map(([sq])=>sq)
+}
+function tacticalCapture(b,from,to,ctx,ep=false){
+  const p=b[from],victim=ep?b[to[0]+from.slice(1)]:b[to]
+  if(!p||!victim||victim.c===p.c||isRoyal(victim)||isDivine(victim)||victim.immortal)return null
+  const next={...b};delete next[from];if(ep)delete next[to[0]+from.slice(1)]
+  const promo=p.t==='p'&&Number(to.slice(1))===(p.c==='w'?ctx.size:1)
+  next[to]=promo?{...p,t:'q'}:{...p}
+  if(tacticalKingDanger(next,p.c,ctx).length)return null
+  return {b:next,gain:worth(victim)+(promo?8:0),from,to}
+}
+function tacticalCaptures(b,color,ctx,target=null){
+  const entries=Object.entries(b),own=entries.filter(([,p])=>p.c===color),foes=target?[[target,b[target]]]:entries.filter(([,p])=>p.c!==color)
+  const out=[]
+  for(const [to,p] of foes){
+    if(!p||p.c===color||isRoyal(p)||isDivine(p)||p.immortal)continue
+    for(const [from] of own){
+      if(!movement(b,from,to,ctx.size,ctx.blocked,true))continue
+      if(++ctx.nodes>ctx.limit){ctx.complete=false;return out}
+      const cap=tacticalCapture(b,from,to,ctx);if(cap)out.push(cap)
+    }
+  }
+  return out
+}
+function tacticalExchange(b,to,color,ctx,depth=0){
+  const caps=tacticalCaptures(b,color,ctx,to)
+  if(!ctx.complete)return null
+  if(!caps.length)return 0
+  if(depth>=7){ctx.complete=false;return null}
+  let best=0
+  for(const cap of caps){
+    const reply=tacticalExchange(cap.b,to,other(color),ctx,depth+1)
+    if(reply===null)return null
+    best=Math.max(best,cap.gain-reply)
+  }
+  return best
+}
+export function staticExchangeEval(state,square,attacker){
+  const ctx=tacticalContext(state),gain=tacticalExchange(state.b,square,attacker,ctx)
+  return ctx.complete?gain:null
+}
+function tacticalThreats(b,color,ctx){
+  const out=new Map()
+  for(const cap of tacticalCaptures(b,color,ctx)){
+    const reply=tacticalExchange(cap.b,cap.to,other(color),ctx)
+    if(reply===null||!ctx.complete)break
+    const net=cap.gain-reply
+    if(net>(out.get(cap.to)?.net||0))out.set(cap.to,{...cap,net})
+  }
+  return out
+}
+const topThreat=map=>[...map.values()].sort((a,b)=>b.net-a.net)[0]||null
+function tacticalSafeCaptures(state,color,ctx){
+  const caps=tacticalCaptures(state.b,color,ctx),out=[]
+  if(state.ep&&state.ep!=='-'){
+    const ch=orthodox(state,color)
+    if(ch)for(const m of ch.moves({verbose:true}).filter(m=>m.isEnPassant())){
+      const cap=tacticalCapture(state.b,m.from,m.to,ctx,true);if(cap)caps.push(cap)
+    }
+  }
+  for(const cap of caps){
+    if(!ctx.complete)break
+    const replies=tacticalThreats(cap.b,other(color),ctx)
+    if(!ctx.complete)break
+    const net=cap.gain-(topThreat(replies)?.net||0)
+    if(net>=.99)out.push({...cap,net})
+  }
+  return out.sort((a,b)=>b.net-a.net)
+}
+export function tacticalAssessment(before,after,action,actor){
+  if(action.power||!action.from||!action.to)return null
+  const foe=other(actor),bc=tacticalContext(before),ac=tacticalContext(after)
+  const oldDanger=tacticalKingDanger(before.b,actor,bc),newDanger=tacticalKingDanger(after.b,actor,ac)
+  const result=(key,detail)=>grade(key,detail,'Instant tactical estimate · capture exchange and king safety')
+  if(newDanger.length)return result('blunder','Your king is exposed on '+newDanger.join(', ')+'.')
+  const oldThreat=tacticalThreats(before.b,foe,bc),newThreat=tacticalThreats(after.b,foe,ac)
+  if(!bc.complete||!ac.complete)return null
+  const material=points(after.b,actor)-points(before.b,actor)
+  let exposed=null
+  for(const [sq,t] of newThreat){
+    const moved=sq===action.to&&after.b[sq]?.c===actor
+    const extra=moved?t.net:Math.max(0,t.net-(oldThreat.get(sq)?.net||0))
+    if(extra>=.99&&(!exposed||extra>exposed.extra))exposed={...t,extra,moved}
+  }
+  if(exposed&&exposed.extra-Math.max(0,material)>=.99)
+    return result('blunder',(exposed.moved?'The moved piece':'Another piece')+' on '+exposed.to+' can be captured by '+exposed.from+' for a net loss of about '+exposed.extra.toFixed(1)+' pawn units after recaptures.')
+  if(material<=-1)return result('blunder','The move directly loses '+(-material).toFixed(1)+' pawn units of material.')
+  const opportunity=tacticalSafeCaptures(before,actor,bc)[0]
+  if(!bc.complete)return null
+  const playedNet=material-(topThreat(newThreat)?.net||0)
+  if(opportunity&&opportunity.net-playedNet>=.95&&!(action.from===opportunity.from&&action.to===opportunity.to))
+    return result('miss','Missed safe capture: '+opportunity.from+' × '+opportunity.to+' could gain about '+opportunity.net.toFixed(1)+' pawn units after immediate replies.')
+  if(newFork(before,after,action.from,action.to,actor)&&!exposed&&material>=0)
+    return result('great','Creates a new fork of major enemy pieces without an immediate material loss.')
+  if(oldDanger.length&&!newDanger.length&&material>=0)
+    return result('great','Removes an attack on your king while preserving material.')
+  if(material>=3&&playedNet>=2)
+    return result(material>=8?'great':'best','Wins material after accounting for immediate capture and recapture sequences.')
+  if(tacticalKingDanger(after.b,foe,ac).length>tacticalKingDanger(before.b,foe,bc).length&&playedNet>=0)
+    return result('excellent','Creates a new attack on the opposing king without an immediate material loss.')
+  if((topThreat(oldThreat)?.net||0)-(topThreat(newThreat)?.net||0)>=2&&material>=0)
+    return result('excellent','Blocks or escapes a dangerous capture threat.')
+  return null
+}
 export function reviewAction(before,after,action,actor,outcome){
   const legality=classifyAction(before,action,actor)
   const result=reviewMove(before,after,action,actor,outcome)
   result.legality=legality
+  const tactical=outcome?null:tacticalAssessment(before,after,action,actor)
+  if(tactical){
+    result.grade={...grade('sandbox',tactical.detail,tactical.source),visualKey:tactical.key}
+    if(legality.kind==='illegal')result.grade.visualKey=illegalQuality[tactical.key]||'illegalMove'
+    if(legality.kind!=='legal')delete result.search
+    return result
+  }
   if(legality.kind==='legal'&&(result.search||result.grade.key==='book'))return result
   if(legality.kind!=='legal')delete result.search
   const gained=points(after.b,actor)-points(before.b,actor)
